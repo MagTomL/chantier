@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="theme-color" content="#1E6FBF" />
+<meta name="apple-mobile-web-app-title" content="Chantier" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="description" content="Suivi de budget, devis et patrimoine" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<title>Carnet de chantier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js" crossorigin></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  html,body{margin:0;padding:0}
+  #boot{font-family:system-ui,sans-serif;color:#6E7F92;background:#FFF6E9;
+    height:100vh;display:grid;place-items:center;text-align:center;font-size:13px}
+</style>
+</head>
+<body>
+<div id="root"><div id="boot">Carnet de chantier<br>chargement…</div></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo } = React;
+
+/* ------------------------------------------------------------------ *
+ *  CARNET DE CHANTIER — version autonome
+ *  Les données vivent dans le navigateur de cet appareil (localStorage).
+ *  Rien n'est envoyé nulle part, sauf les factures que tu demandes
+ *  explicitement à Claude de lire, avec ta propre clé API.
+ * ------------------------------------------------------------------ */
+
+const C = {
+  platre: "#FFF6E9", craie: "#FFFFFF", ardoise: "#16324F", mine: "#4F657E",
+  trait: "#EADFCC", cordeau: "#1E6FBF", cordeauPale: "#DCEBFA",
+  brique: "#DE5B3B", briquePale: "#FBE3DC", vert: "#12A594", ocre: "#E9A13B",
+};
+const SERIE = ["#1E6FBF","#12A594","#E9A13B","#DE5B3B","#6F9440",
+  "#D4587A","#7C5CBF","#3FA9D8","#F0C544","#E17B52","#9BBF5A","#C471A5"];
+
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+
+.cdc { font-family: 'DM Sans', system-ui, -apple-system, sans-serif; color: ${C.ardoise};
+  background: ${C.platre}; min-height: 100vh; font-size: 16px; -webkit-font-smoothing: antialiased; }
+.cdc button { font-family: inherit; cursor: pointer; }
+.cdc :focus-visible { outline: 3px solid ${C.cordeau}; outline-offset: 2px; }
+.wrap { max-width: 780px; margin: 0 auto; padding: 0 16px 100px; }
+
+.eyebrow { font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700;
+  font-size: 13px; color: ${C.mine}; }
+.h2 { font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700;
+  letter-spacing: -.015em; font-size: 17px; margin: 0; }
+.num { font-family: 'DM Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+  font-weight: 500; letter-spacing: -.02em; }
+.lab { display: block; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700;
+  font-size: 13px; color: ${C.mine}; margin: 0 0 7px; }
+
+.card { background: ${C.craie}; border: 1.5px solid ${C.trait}; border-radius: 16px;
+  box-shadow: 0 1px 0 rgba(22,50,79,.04), 0 8px 20px -14px rgba(22,50,79,.3); }
+
+.btn { border: 0; background: ${C.ardoise}; color: #fff; font-weight: 700; font-size: 15px;
+  padding: 13px 20px; border-radius: 999px; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-ghost { border: 1.5px solid ${C.trait}; background: ${C.craie}; color: ${C.ardoise};
+  font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 999px; }
+.btn-ghost:hover { border-color: ${C.cordeau}; color: ${C.cordeau}; }
+.btn-ghost:disabled { opacity: .35; cursor: not-allowed; }
+.btn-blue { border: 0; background: ${C.cordeau}; color: #fff; font-weight: 700; font-size: 16px;
+  padding: 13px 20px; border-radius: 999px; box-shadow: 0 8px 18px -6px rgba(30,111,191,.65); }
+
+.field { width: 100%; font-family: 'DM Sans', sans-serif; font-size: 16px; color: ${C.ardoise};
+  background: ${C.craie}; border: 1.5px solid ${C.trait}; border-radius: 12px; padding: 12px 13px; }
+.field:focus { border-color: ${C.cordeau}; outline: none; }
+.field.mono { font-family: 'DM Mono', monospace; font-variant-numeric: tabular-nums; }
+
+.jauge { position: relative; height: 16px; background: ${C.platre};
+  border: 1.5px solid ${C.trait}; border-radius: 999px; overflow: hidden; }
+.jauge-paye { position: absolute; top: 0; bottom: 0; left: 0; background: ${C.cordeau}; }
+.jauge-eng { position: absolute; top: 0; bottom: 0; background-color: ${C.cordeauPale};
+  background-image: repeating-linear-gradient(45deg, ${C.cordeau} 0 2px, transparent 2px 5px); }
+.jauge.over .jauge-paye { background: ${C.brique}; }
+.jauge.over .jauge-eng { background-color: ${C.briquePale};
+  background-image: repeating-linear-gradient(45deg, ${C.brique} 0 2px, transparent 2px 5px); }
+.niveau { position: absolute; top: -3px; bottom: -3px; width: 2px; background: ${C.ardoise}; }
+
+.tabs { display: flex; gap: 3px; background: #fff; border: 1.5px solid ${C.trait};
+  border-radius: 999px; padding: 4px; }
+.tab { flex: 1; border: 0; background: transparent; padding: 12px 2px; border-radius: 999px;
+  font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 14px;
+  letter-spacing: -.01em; color: ${C.mine}; }
+.tab[aria-selected="true"] { color: #fff; box-shadow: 0 4px 12px -4px rgba(22,50,79,.5); }
+
+.row { display: flex; align-items: center; gap: 12px; padding: 16px 14px; text-align: left;
+  width: 100%; border: 0; background: transparent; border-top: 1.5px solid ${C.trait}; }
+.row:first-child { border-top: 0; }
+
+.pill { display: inline-flex; align-items: center; font-family: 'Bricolage Grotesque', sans-serif;
+  font-weight: 700; font-size: 12.5px; padding: 4px 11px; border-radius: 999px;
+  white-space: nowrap; line-height: 1.4; }
+.bande { width: 7px; border-radius: 999px; flex-shrink: 0; }
+
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+.tag { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 11px;
+  padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+
+.sheet { position: fixed; inset: 0; background: rgba(22,50,79,.45); z-index: 50;
+  display: flex; align-items: flex-end; justify-content: center; }
+.sheet-in { background: ${C.platre}; width: 100%; max-width: 780px; max-height: 94vh;
+  overflow-y: auto; border-radius: 22px 22px 0 0; animation: rise .18s ease-out; }
+@keyframes rise { from { transform: translateY(14px); opacity: .6 } to { transform: none; opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .sheet-in { animation: none } }
+
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid ${C.trait};
+  border-top-color: ${C.cordeau}; border-radius: 50%; animation: sp .7s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg) } }
+`;
+
+/* ---------------------------------- utils */
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const N = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+const eur = (n) => new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:2}).format(n||0);
+const eurCourt = (n) => new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
+const today = () => new Date().toISOString().slice(0,10);
+const jour = (d) => { try { return new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}); } catch { return d; } };
+
+const POSTES_DEFAUT = {
+  patrimoine: [],
+  travaux: ["Maçonnerie","Menuiseries","Ferronnerie","Cuisine","Achats divers","Imprévus"],
+  budget: ["Logement","Alimentation","Transport","Santé","Loisirs","Abonnements","Divers"],
+  libre: ["Divers"],
+};
+const MOYENS = ["CB","Virement","Chèque","Espèces","Prélèvement"];
+
+/* ---------------------------------- stockage partagé
+ * Tout passe par Supabase : ce que tu écris, Thomas le voit.
+ * Restent sur l'appareil et n'en bougent jamais : la config et la clé API.
+ */
+const K_CFG = "cdc:supabase";
+const K_CLE = "cdc:cle";
+const K_PROJETS = "cdc:projets";
+const kEntrees = (id) => `cdc:entrees:${id}`;
+const kPhoto = (id) => `cdc:photo:${id}`;
+
+let supa = null;
+let CARNET = null;
+let CARNET_INFO = null;
+
+const cfg = () => { try { return JSON.parse(localStorage.getItem(K_CFG) || "null"); } catch { return null; } };
+const setCfg = (c) => localStorage.setItem(K_CFG, JSON.stringify(c));
+function ouvrirSupa() {
+  const c = cfg();
+  if (!c || !c.url || !c.key) return null;
+  if (!supa) supa = window.supabase.createClient(c.url, c.key, { auth: { persistSession: true, autoRefreshToken: true } });
+  return supa;
+}
+
+async function sGet(k, f) {
+  try {
+    const { data, error } = await supa.from("donnees").select("valeur").eq("carnet_id", CARNET).eq("cle", k).maybeSingle();
+    if (error) throw error;
+    return data ? data.valeur : f;
+  } catch { return f; }
+}
+async function sSet(k, v) {
+  const { error } = await supa.from("donnees")
+    .upsert({ carnet_id: CARNET, cle: k, valeur: v, maj: new Date().toISOString() }, { onConflict: "carnet_id,cle" });
+  if (error) throw error;
+}
+async function sDel(k) {
+  await supa.from("donnees").delete().eq("carnet_id", CARNET).eq("cle", k);
+}
+
+// Les justificatifs, à la demande : trop lourds pour voyager en permanence.
+const brut = {
+  async get(k) {
+    try {
+      const { data } = await supa.from("pieces").select("valeur").eq("carnet_id", CARNET).eq("cle", k).maybeSingle();
+      return data ? data.valeur : null;
+    } catch { return null; }
+  },
+  async set(k, v) {
+    const { error } = await supa.from("pieces").upsert({ carnet_id: CARNET, cle: k, valeur: v }, { onConflict: "carnet_id,cle" });
+    if (error) throw error;
+  },
+  async del(k) { try { await supa.from("pieces").delete().eq("carnet_id", CARNET).eq("cle", k); } catch {} },
+};
+
+/* ---------------------------------- Claude, avec ta clé */
+function cle() { return (localStorage.getItem(K_CLE) || "").trim(); }
+async function claude(messages) {
+  const k = cle();
+  if (!k) throw new Error("no-key");
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": k,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages }),
+  });
+  if (!r.ok) throw new Error("api-" + r.status);
+  const d = await r.json();
+  const txt = (d.content||[]).map(i => i.type === "text" ? i.text : "").join("\n");
+  return JSON.parse(txt.replace(/```json|```/g,"").trim());
+}
+const CONSIGNE = (postes) => `Tu extrais une écriture comptable d'un texte dicté en français.
+Postes disponibles : ${postes.join(", ")}.
+Réponds UNIQUEMENT par un objet JSON, sans texte autour, sans balises Markdown :
+{"date":"AAAA-MM-JJ","libelle":"...","fournisseur":"...","montant":0,"moyen":"CB|Virement|Chèque|Espèces|Prélèvement","poste":"un des postes","type":"depense|devis"}
+Règles : "aujourd'hui" = ${today()}. Montant en nombre décimal, virgule française acceptée.
+Si une information est absente, mets une chaîne vide (ou 0). Choisis le poste le plus plausible.
+"devis" seulement si le texte parle explicitement d'un devis ou d'une estimation non payée.`;
+
+/* ---------------------------------- calculs */
+function verse(entrees, id) {
+  return entrees.filter(e => e.type === "depense" && e.lie === id).reduce((s,e) => s + N(e.montant), 0);
+}
+function chiffrer(entrees, poste) {
+  const dans = (e) => !poste || e.poste === poste;
+  let paye = 0, engage = 0;
+  entrees.forEach(e => {
+    if (e.type === "depense" && dans(e)) paye += N(e.montant);
+    if (e.type === "devis" && e.statut === "signe" && dans(e)) engage += Math.max(0, N(e.montant) - verse(entrees, e.id));
+  });
+  return { paye, engage, total: paye + engage };
+}
+
+/* ---------------------------------- graphiques maison */
+function arc(a0, a1, ri, ro, c) {
+  const grand = (a1 - a0) > Math.PI ? 1 : 0;
+  const P = (r,a) => [(c + r*Math.cos(a)).toFixed(2), (c + r*Math.sin(a)).toFixed(2)];
+  const [x0,y0]=P(ro,a0), [x1,y1]=P(ro,a1), [x2,y2]=P(ri,a1), [x3,y3]=P(ri,a0);
+  return `M${x0},${y0}A${ro},${ro} 0 ${grand} 1 ${x1},${y1}L${x2},${y2}A${ri},${ri} 0 ${grand} 0 ${x3},${y3}Z`;
+}
+function Donut({ data, size = 150 }) {
+  const total = data.reduce((s,d) => s + d.total, 0);
+  const c = size/2, ri = size*0.29, ro = size*0.48;
+  if (!total) return null;
+  if (data.length === 1) return (
+    <svg width={size} height={size}>
+      <circle cx={c} cy={c} r={(ri+ro)/2} fill="none" stroke={data[0].couleur} strokeWidth={ro-ri} />
+    </svg>
+  );
+  let acc = 0;
+  return (
+    <svg width={size} height={size} role="img" aria-label="Répartition des dépenses par poste">
+      {data.map(d => {
+        const a0 = (acc/total)*2*Math.PI - Math.PI/2;
+        acc += d.total;
+        const a1 = (acc/total)*2*Math.PI - Math.PI/2;
+        return <path key={d.nom} d={arc(a0, a1 - 0.012, ri, ro, c)} fill={d.couleur}>
+          <title>{`${d.nom} — ${eur(d.total)}`}</title>
+        </path>;
+      })}
+    </svg>
+  );
+}
+function BarreEmpilee({ data }) {
+  const total = data.reduce((s,b) => s + b.val, 0) || 1;
+  return (
+    <div style={{ display:"flex", height:28, borderRadius:999, overflow:"hidden", border:`1.5px solid ${C.trait}` }}>
+      {data.map(b => (
+        <div key={b.nom} title={`${b.nom} — ${eur(b.val)}`}
+          style={{ width:`${(b.val/total)*100}%`, background:b.couleur }} />
+      ))}
+    </div>
+  );
+}
+
+/* ================================================================== */
+function App({ onDeco, onChangerCarnet }) {
+  const [projets, setProjets] = useState(null);
+  const [actif, setActif] = useState(null);
+  const [entrees, setEntrees] = useState([]);
+  const [onglet, setOnglet] = useState("journal");
+  const [editeur, setEditeur] = useState(null);
+  const [erreur, setErreur] = useState("");
+
+  useEffect(() => { (async () => {
+    let p = await sGet(K_PROJETS, null);
+    if (!p || !p.length) {
+      const id = uid();
+      p = [{
+        id, nom:"Maison La Viguerie", type:"travaux", plafond:"150000",
+        acquisition:[
+          { id:uid(), libelle:"Prix d'achat", montant:"880000" },
+          { id:uid(), libelle:"Frais de notaire", montant:"51099" },
+        ],
+        prevus:{ "Maçonnerie":"42000","Menuiseries":"","Ferronnerie":"","Cuisine":"45000",
+          "Achats divers":"","Imprévus":"15000","Architecte & BET":"7000","Aménagement du jardin":"" },
+        maj:7, cree:today(),
+      }];
+      const dCuis = uid(), dArch = uid(), dBet = uid(), dMeg = uid();
+      const seed = [
+        { id:dCuis, ref:"26DK05994", date:"2026-05-14", libelle:"Cuisine Schmidt — BC 26DK05994",
+          fournisseur:"SARL Aparte — Schmidt Vallauris", montant:38700, moyen:"", poste:"Cuisine",
+          type:"devis", statut:"signe", lie:"", photo:false,
+          note:"Total net TTC. Livraison sem. du 07 au 11/09/2026, pose du 14 au 18/09/2026.\nSolde de 23 220 € dû le 11/09/2026.\nPlan de travail marbrier non inclus : avenant à venir.\nContact : Kevin Vilia, 04 93 45 41 33." },
+        { id:uid(), ref:"26DK05994", date:"2026-05-14", libelle:"Acompte sur fournitures — cuisine Schmidt",
+          fournisseur:"SARL Aparte — Schmidt Vallauris", montant:15480, moyen:"Chèque", poste:"Cuisine",
+          type:"depense", statut:"signe", lie:dCuis, photo:false, note:"Acompte de 40 % prévu à l'échéancier." },
+        { id:dArch, ref:"MOE", date:"2026-07-15", libelle:"Architecte — honoraires", fournisseur:"Architecte",
+          montant:3500, moyen:"", poste:"Architecte & BET", type:"devis", statut:"signe", lie:"", photo:false,
+          note:"Total honoraires 7 000 € pour les deux intervenants.\nÀ vérifier : date exacte et nom du prestataire." },
+        { id:uid(), ref:"MOE", date:"2026-07-15", libelle:"Acompte 50 % — Architecte", fournisseur:"Architecte",
+          montant:1750, moyen:"Virement", poste:"Architecte & BET", type:"depense", statut:"signe", lie:dArch, photo:false,
+          note:"À corriger : date réelle du règlement et moyen de paiement." },
+        { id:dBet, ref:"MOE", date:"2026-07-15", libelle:"Ingénieur béton — BET structure", fournisseur:"Bureau d'études structure",
+          montant:3500, moyen:"", poste:"Architecte & BET", type:"devis", statut:"signe", lie:"", photo:false,
+          note:"À vérifier : date exacte et nom du prestataire." },
+        { id:uid(), ref:"MOE", date:"2026-07-15", libelle:"Acompte 50 % — Ingénieur béton", fournisseur:"Bureau d'études structure",
+          montant:1750, moyen:"Virement", poste:"Architecte & BET", type:"depense", statut:"signe", lie:dBet, photo:false,
+          note:"À corriger : date réelle du règlement et moyen de paiement." },
+        { id:dMeg, ref:"MEGRI", date:"2026-07-15", libelle:"Maçonnerie — marché Megri", fournisseur:"Société Megri",
+          montant:42000, moyen:"", poste:"Maçonnerie", type:"devis", statut:"signe", lie:"", photo:false,
+          note:"Montant TTC convenu pour la totalité de son intervention.\nÀ vérifier : devis signé, taux de TVA appliqué, échéancier des appels de fonds." },
+        { id:uid(), ref:"MEGRI", date:"2026-07-15", libelle:"Ouverture de chantier — acompte", fournisseur:"Société Megri",
+          montant:3000, moyen:"Virement", poste:"Maçonnerie", type:"depense", statut:"signe", lie:dMeg, photo:false,
+          note:"Virement du 15/07/2026." },
+      ];
+      try { await sSet(K_PROJETS, p); await sSet(kEntrees(id), seed.sort((a,b)=>a.date<b.date?1:-1)); }
+      catch { setErreur("Le stockage du navigateur est bloqué. Rien ne sera conservé."); }
+    }
+    // Acompte sur le plan de travail : payé, mais sans devis en face.
+    const v = p.find(x => x.nom === "Maison La Viguerie");
+    if (v && (v.maj || 0) < 8) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        if (!list.some(e => e.ref === "PDT")) {
+          await sSet(kEntrees(v.id), [{
+                id: uid(), ref: "PDT", date: today(),
+                libelle: "Acompte plan de travail — marbrier",
+                fournisseur: "SARL Aparte — Schmidt Vallauris",
+                montant: 2510, moyen: "Chèque", poste: "Cuisine",
+                type: "depense", statut: "signe", lie: "", photo: false,
+                note: "Chèque non encaissé à ce jour.\nMarbrier extérieur, commandé et coordonné par Schmidt.\nAucun devis ni avenant reçu : dépense volontairement non rattachée.\nÀ corriger : date réelle d'émission du chèque.",
+              }, ...list].sort((a,b) => a.date < b.date ? 1 : -1));
+        }
+        v.maj = 8;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("L'acompte du plan de travail n'a pas pu être inscrit."); }
+    }
+    // L'acompte prouve l'engagement : le plan de travail doit peser dans l'engagé.
+    if (v && (v.maj || 0) < 9) {
+      try {
+          const list = await sGet(kEntrees(v.id), []);
+          if (!list.some(e => e.ref === "PDT" && e.type === "devis")) {
+            const idD = uid();
+            const devis = {
+              id: idD, ref: "PDT", date: "2026-05-14",
+              libelle: "Plan de travail — marbrier (via Schmidt)",
+              fournisseur: "SARL Aparte — Schmidt Vallauris",
+              montant: 6300, moyen: "", poste: "Cuisine",
+              type: "devis", statut: "signe", lie: "", photo: false,
+              note: "MONTANT ESTIMÉ, PAS UN DEVIS : 45 000 € annoncés moins 38 700 € du bon Schmidt.\nAucun avenant reçu à ce jour. À remplacer dès réception.\nIndice : l'acompte de 2 510 € correspond à 40 % de 6 275 € — le taux appliqué par Schmidt sur les meubles.\nMarbrier extérieur, mesure après la pose des meubles (sem. du 14/09).",
+            };
+            const suite = list.map(e => (e.ref === "PDT" && e.type === "depense") ? { ...e, lie: idD } : e);
+            await sSet(kEntrees(v.id), [devis, ...suite].sort((a, b) => (a.date < b.date ? 1 : -1)));
+          }
+        v.maj = 9;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("Le plan de travail n'a pas pu être rattaché."); }
+    }
+    setProjets(p); setActif(p[0].id);
+  })(); }, []);
+
+  useEffect(() => { if (actif) (async () => setEntrees(await sGet(kEntrees(actif), [])))(); }, [actif]);
+
+  // Ce que Thomas écrit arrive ici tout seul.
+  useEffect(() => {
+    if (!supa || !CARNET) return;
+    const ch = supa.channel("cdc-" + CARNET)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "donnees", filter: "carnet_id=eq." + CARNET },
+        async (p) => {
+          const k = (p.new && p.new.cle) || (p.old && p.old.cle);
+          if (!k) return;
+          if (k === K_PROJETS) setProjets(await sGet(K_PROJETS, []));
+          else if (actif && k === kEntrees(actif)) setEntrees(await sGet(kEntrees(actif), []));
+        })
+      .subscribe();
+    return () => { supa.removeChannel(ch); };
+  }, [actif]);
+
+  const projet = projets?.find(p => p.id === actif);
+
+  useEffect(() => {
+    if (!projet) return;
+    const valides = projet.type === "patrimoine"
+      ? ["avoirs", "repartition", "projets"]
+      : ["journal", "budget", "bilan", "projets"];
+    if (!valides.includes(onglet)) setOnglet(valides[0]);
+  }, [projet?.type]);
+
+  const postes = useMemo(() => {
+    if (!projet) return [];
+    const k = Object.keys(projet.prevus || {});
+    return k.length ? k : (POSTES_DEFAUT[projet.type] || POSTES_DEFAUT.libre);
+  }, [projet]);
+
+  const majProjet = async (patch) => {
+    const next = projets.map(p => p.id === actif ? { ...p, ...patch } : p);
+    setProjets(next);
+    try { await sSet(K_PROJETS, next); } catch { setErreur("Enregistrement impossible."); }
+  };
+  const majProjets = async (next) => {
+    setProjets(next);
+    try { await sSet(K_PROJETS, next); } catch { setErreur("Enregistrement impossible."); }
+  };
+  const majEntrees = async (next) => {
+    setEntrees(next);
+    try { await sSet(kEntrees(actif), next); }
+    catch { setErreur("Enregistrement impossible — le stockage est peut-être plein. Retire une pièce jointe lourde."); }
+  };
+
+  if (!projets) return <div className="cdc" style={{ display:"grid", placeItems:"center", height:"100vh" }}>
+    <style>{CSS}</style><div className="eyebrow">Carnet de chantier</div></div>;
+
+  const estPat = projet?.type === "patrimoine";
+  const plafond = N(projet?.plafond);
+  const t = chiffrer(entrees);
+  const reste = plafond - t.total;
+
+  return (
+    <div className="cdc">
+      <style>{CSS}</style>
+      <div className="wrap">
+        {estPat
+          ? <PatrimoineHero projets={projets} actif={actif} setActif={setActif} comptes={projet.comptes || []} />
+          : <Decompte projets={projets} actif={actif} setActif={setActif} plafond={plafond} t={t} reste={reste} />}
+        {erreur && (
+          <div className="card" style={{ padding:12, marginBottom:12, borderColor:C.brique, background:C.briquePale, fontSize:13 }}>
+            {erreur} <button className="btn-ghost" style={{ padding:"4px 10px", marginLeft:6 }} onClick={()=>setErreur("")}>Fermer</button>
+          </div>
+        )}
+        <div className="tabs" role="tablist" style={{ marginBottom:14 }}>
+          { (estPat
+            ? [["avoirs", "Avoirs"], ["repartition", "Répartition"], ["projets", "Projets"]]
+            : [["journal", "Journal"], ["budget", "Budget"], ["bilan", "Bilan"], ["projets", "Projets"]]).map(([k,l]) => (
+            <button key={k} role="tab" aria-selected={onglet===k} className="tab" onClick={()=>setOnglet(k)}
+              style={onglet===k ? { background: COUL_ONGLET[k] } : undefined}>{l}</button>
+          ))}
+        </div>
+        {onglet === "avoirs" && <Avoirs projet={projet} majProjet={majProjet} />}
+        {onglet === "repartition" && <Repartition projet={projet} />}
+        {onglet==="journal" && <Journal entrees={entrees} postes={postes} onOuvrir={setEditeur} />}
+        {onglet==="budget" && <Budget projet={projet} postes={postes} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
+        {onglet==="bilan" && <Bilan projet={projet} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
+        {onglet==="projets" && <Projets projets={projets} actif={actif} setActif={setActif} maj={majProjets}
+          entrees={entrees} projet={projet} majProjet={majProjet} setErreur={setErreur}
+          onDeco={onDeco} onChangerCarnet={onChangerCarnet} />}
+      </div>
+
+      {onglet==="journal" && !estPat && (
+        <div style={{ position:"fixed", left:0, right:0, bottom:0, padding:"14px 14px calc(14px + env(safe-area-inset-bottom))",
+          background:`linear-gradient(transparent, ${C.platre} 40%)` }}>
+          <div style={{ maxWidth:780, margin:"0 auto" }}>
+            <button className="btn-blue" style={{ width:"100%", padding:15 }} onClick={()=>setEditeur({id:null})}>
+              Noter une dépense
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editeur && projet && (
+        <Editeur
+          entree={editeur.id ? entrees.find(e=>e.id===editeur.id) : null}
+          postes={postes} entrees={entrees}
+          devis={entrees.filter(e => e.type==="devis" && e.statut==="signe" && e.id!==editeur.id)}
+          onFermer={()=>setEditeur(null)}
+          onEnregistrer={async (e) => {
+            const next = editeur.id ? entrees.map(x=>x.id===e.id?e:x) : [e, ...entrees];
+            next.sort((a,b)=>a.date<b.date?1:-1);
+            await majEntrees(next); setEditeur(null);
+          }}
+          onSupprimer={async (id) => {
+            await majEntrees(entrees.filter(x=>x.id!==id));
+            try { await sDel(kPhoto(id)); } catch {}
+            setEditeur(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------- Décompte */
+// Trois états, trois couleurs franches. Blanc : parti. Jaune : promis. Transparent : libre.
+const PAYE = "#FFFFFF";
+const ENGAGE = "#F5C645";
+
+function Decompte({ projets, actif, setActif, plafond, t, reste }) {
+  const over = plafond > 0 && t.total > plafond;
+  const base = Math.max(plafond, t.total, 1);
+  const pc = plafond > 0 ? Math.round((t.total / plafond) * 100) : 0;
+  const pcPaye = Math.min(100, (t.paye / base) * 100);
+  const pcEng = Math.max(0, Math.min(100 - pcPaye, (t.engage / base) * 100));
+
+  return (
+    <header style={{ padding: "22px 0 18px" }}>
+      <div className="eyebrow">Carnet de chantier</div>
+      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
+        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
+          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0,
+          width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
+        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+      </select>
+
+      <div style={{
+        padding: 20, borderRadius: 20, color: "#fff",
+        background: over
+          ? `linear-gradient(160deg, #E86A48 0%, ${C.brique} 55%, #B94427 100%)`
+          : `linear-gradient(160deg, #3585D6 0%, ${C.cordeau} 55%, #14508F 100%)`,
+        boxShadow: `0 16px 34px -16px ${over ? "rgba(222,91,59,.8)" : "rgba(30,111,191,.75)"}`,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 2 }}>
+          <span style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 15, color: "rgba(255,255,255,.9)" }}>
+            {plafond === 0 ? "Total engagé" : over ? "Dépassement du plafond" : "Reste à engager"}
+          </span>
+          <span className="num" style={{ fontSize: 13, color: "rgba(255,255,255,.85)", whiteSpace: "nowrap" }}>
+            {plafond > 0 ? `${pc} % de ${eurCourt(plafond)}` : "aucun plafond"}
+          </span>
+        </div>
+
+        <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 48,
+          letterSpacing: "-.04em", lineHeight: 1.05, color: "#fff", marginBottom: 18, fontVariantNumeric: "tabular-nums" }}>
+          {eurCourt(plafond === 0 ? t.total : Math.abs(reste))}
+        </div>
+
+        <div style={{ position: "relative", height: 30, borderRadius: 999,
+          background: "rgba(255,255,255,.22)", border: "2px solid rgba(255,255,255,.45)", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${pcPaye}%`, background: PAYE }} />
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: `${pcPaye}%`, width: `${pcEng}%`,
+            background: ENGAGE, borderLeft: pcPaye > 0 && pcEng > 0 ? "2px solid rgba(22,50,79,.35)" : "none" }} />
+          {over && <div style={{ position: "absolute", top: -2, bottom: -2, left: `${(plafond / base) * 100}%`,
+            width: 3, background: C.ardoise }} />}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 16 }}>
+          <Bloc couleur={PAYE} label="Payé" val={t.paye} />
+          <Bloc couleur={ENGAGE} label="Engagé" val={t.engage} fort />
+          <Bloc couleur="rgba(255,255,255,.28)" label="Disponible" val={Math.max(0, reste)} />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Bloc({ couleur, label, val, fort }) {
+  return (
+    <div style={{
+      background: "rgba(255,255,255,.15)", borderRadius: 12, padding: "10px 11px",
+      border: fort ? `2px solid ${ENGAGE}` : "2px solid transparent",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+        <span style={{ width: 14, height: 14, borderRadius: 5, background: couleur, flexShrink: 0,
+          border: "1px solid rgba(255,255,255,.5)" }} />
+        <span style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700,
+          fontSize: 13, color: "rgba(255,255,255,.9)" }}>{label}</span>
+      </div>
+      <div className="num" style={{ fontSize: 18, fontWeight: 500, color: fort ? ENGAGE : "#fff", letterSpacing: "-.03em" }}>
+        {eurCourt(val)}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- Journal */
+const couleurPoste = (postes, nom) => SERIE[(Math.max(0, postes.indexOf(nom))) % SERIE.length];
+
+function Journal({ entrees, postes, onOuvrir }) {
+  const [q, setQ] = useState("");
+  const filtre = entrees.filter(e => !q || [e.libelle, e.fournisseur, e.poste].join(" ").toLowerCase().includes(q.toLowerCase()));
+
+  if (!entrees.length) return (
+    <div className="card" style={{ padding: 32, textAlign: "center" }}>
+      <div className="h2" style={{ marginBottom: 8, fontSize: 18 }}>Le carnet est vierge</div>
+      <p style={{ fontSize: 15, color: C.mine, margin: "0 auto", maxWidth: 380, lineHeight: 1.6 }}>
+        Note ta première dépense. Dicte avec le micro de ton clavier, ou joins la facture.
+      </p>
+    </div>
+  );
+
+  return (
+    <>
+      <input className="field" placeholder="Rechercher un libellé, un fournisseur, un poste"
+        value={q} onChange={e => setQ(e.target.value)} style={{ marginBottom: 12 }} />
+      <div className="card">
+        {filtre.map(e => {
+          const col = couleurPoste(postes, e.poste);
+          const v = e.type === "devis" && e.statut === "signe" ? verse(entrees, e.id) : 0;
+          const solde = N(e.montant) - v;
+          const parent = e.lie ? entrees.find(x => x.id === e.lie) : null;
+          return (
+            <button key={e.id} className="row" onClick={() => onOuvrir({ id: e.id })} style={{ gap: 12, padding: "16px 14px", alignItems: "stretch", background: col + "0D" }}>
+              <span className="bande" style={{ background: col, width: 7 }} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, letterSpacing: "-.015em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {e.libelle || "Sans libellé"}
+                  </span>
+                  <span className="num" style={{ fontSize: 19, fontWeight: 500, flexShrink: 0, color: e.type === "devis" ? C.mine : C.ardoise }}>
+                    {eur(N(e.montant))}
+                  </span>
+                </span>
+
+                <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 7, flexWrap: "wrap" }}>
+                  <span className="pill" style={{ background: col + "22", color: col }}>{e.poste}</span>
+                  {e.type === "devis" && (
+                    <span className="pill" style={{
+                      background: e.statut === "signe" ? C.ardoise : "transparent",
+                      color: e.statut === "signe" ? "#fff" : C.mine,
+                      border: e.statut === "signe" ? "none" : `1.5px solid ${C.trait}`,
+                    }}>{e.statut === "signe" ? "Devis signé" : "Devis en attente"}</span>
+                  )}
+                  {parent && <span className="pill" style={{ background: C.vert + "22", color: C.vert }}>Acompte</span>}
+                  {e.photo && <span className="pill" style={{ background: C.ocre + "26", color: "#9A6614" }}>Pièce jointe</span>}
+                  <span className="num" style={{ fontSize: 14, color: C.mine }}>{jour(e.date)}</span>
+                  {e.fournisseur && (
+                    <span style={{ fontSize: 14.5, color: C.mine, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      · {e.fournisseur}
+                    </span>
+                  )}
+                </span>
+
+                {v > 0 && (
+                  <span style={{ display: "block", marginTop: 8 }}>
+                    <span className="jauge" style={{ height: 7, display: "block" }}>
+                      <span className="jauge-paye" style={{ background: col, width: `${Math.min(100, (v / N(e.montant)) * 100)}%` }} />
+                    </span>
+                    <span className="num" style={{ fontSize: 12, color: solde <= 0 ? C.vert : C.mine, display: "block", marginTop: 5 }}>
+                      {eurCourt(v)} versés · {solde <= 0 ? "soldé" : `${eurCourt(solde)} restants`}
+                    </span>
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+        {!filtre.length && <div style={{ padding: 28, textAlign: "center", fontSize: 14, color: C.mine }}>Aucune écriture ne correspond.</div>}
+      </div>
+    </>
+  );
+}
+
+/* ---------------------------------- Budget */
+const COUL_ONGLET = { journal: "#1E6FBF", budget: "#12A594", bilan: "#E9A13B", projets: "#D4587A",
+  avoirs: "#7C5CBF", repartition: "#12A594" };
+
+function Budget({ projet, postes, entrees, plafond, majProjet }) {
+  const [nouveau, setNouveau] = useState("");
+  const affecte = postes.reduce((s, p) => s + N(projet.prevus?.[p]), 0);
+  const ecart = plafond - affecte;
+  const setPrevu = (poste, v) => majProjet({ prevus: { ...projet.prevus, [poste]: v.replace(",", ".") } });
+  const ajouter = () => { const n = nouveau.trim(); if (!n || postes.includes(n)) return;
+    majProjet({ prevus: { ...projet.prevus, [n]: "" } }); setNouveau(""); };
+  const retirer = (poste) => { const p = { ...projet.prevus }; delete p[poste]; majProjet({ prevus: p }); };
+  const donnees = postes.map((p, i) => ({ ...chiffrer(entrees, p), nom: p, couleur: SERIE[i % SERIE.length] }))
+    .filter(d => d.total > 0).sort((a, b) => b.total - a.total);
+
+  return (
+    <>
+      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+        <label className="lab">Plafond travaux — à ne pas dépasser</label>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <input className="field mono" inputMode="decimal" value={projet.plafond ?? ""}
+            onChange={e => majProjet({ plafond: e.target.value.replace(",", ".") })}
+            style={{ width: 150, textAlign: "right", fontSize: 19, fontWeight: 500 }} />
+          <span style={{ flex: 1, fontSize: 15, color: C.mine }}>euros</span>
+        </div>
+        {plafond > 0 && (
+          <div style={{ marginTop: 14, padding: 14, borderRadius: 12,
+            background: Math.abs(ecart) < 1 ? C.vert + "1A" : ecart < 0 ? C.briquePale : C.cordeauPale }}>
+            <span style={{ fontSize: 15, lineHeight: 1.55, color: ecart < 0 ? C.brique : C.ardoise }}>
+              <strong className="num" style={{ fontSize: 16 }}>{eurCourt(affecte)}</strong> répartis sur tes postes.{" "}
+              {Math.abs(ecart) < 1 ? "Ton enveloppe est entièrement affectée."
+                : ecart > 0 ? <>Il te reste <strong className="num" style={{ fontSize: 16 }}>{eurCourt(ecart)}</strong> à affecter.</>
+                : <>Tu as réparti <strong className="num" style={{ fontSize: 16 }}>{eurCourt(-ecart)}</strong> de plus que ton plafond.</>}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {donnees.length > 0 && (
+        <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+          <div className="lab" style={{ marginBottom: 12 }}>Où part l'argent</div>
+          <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+            <Donut data={donnees} size={168} />
+            <div style={{ flex: 1, minWidth: 190, display: "grid", gap: 9 }}>
+              {donnees.map(d => (
+                <div key={d.nom} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 14, height: 14, borderRadius: 5, background: d.couleur, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 15 }}>{d.nom}</span>
+                  <span className="num" style={{ fontSize: 15 }}>{eurCourt(d.total)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gap: 12 }}>
+        {postes.map((poste, i) => {
+          const col = SERIE[i % SERIE.length];
+          const l = chiffrer(entrees, poste);
+          const prevu = N(projet.prevus?.[poste]);
+          const over = prevu > 0 && l.total > prevu;
+          const base = Math.max(prevu, l.total, 1);
+          const utilise = entrees.some(e => e.poste === poste);
+          return (
+            <div key={poste} className="card" style={{ padding: 16, background: col + "12", borderColor: col + "45" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <span style={{ width: 16, height: 16, borderRadius: 6, background: col, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700,
+                  fontSize: 18, letterSpacing: "-.02em", color: col }}>{poste}</span>
+                <input className="field mono" inputMode="decimal" placeholder="prévu"
+                  value={projet.prevus?.[poste] ?? ""} onChange={ev => setPrevu(poste, ev.target.value)}
+                  style={{ width: 108, padding: "9px 11px", fontSize: 16, textAlign: "right", borderColor: col + "55" }} />
+                <button className="btn-ghost" disabled={utilise} onClick={() => retirer(poste)}
+                  title={utilise ? "Des écritures utilisent ce poste" : "Retirer ce poste"}
+                  style={{ padding: "8px 12px", fontSize: 14, background: "transparent" }}>×</button>
+              </div>
+
+              <div className="jauge" style={{ height: 20, background: "#fff", borderColor: col + "45" }}>
+                <div className="jauge-paye" style={{ background: over ? C.brique : col, width: `${Math.min(100, (l.paye / base) * 100)}%` }} />
+                <div className="jauge-eng" style={{
+                  left: `${Math.min(100, (l.paye / base) * 100)}%`,
+                  width: `${Math.max(0, Math.min(100 - (l.paye / base) * 100, (l.engage / base) * 100))}%`,
+                  backgroundColor: (over ? C.brique : col) + "26",
+                  backgroundImage: `repeating-linear-gradient(45deg, ${over ? C.brique : col} 0 3px, transparent 3px 7px)`,
+                }} />
+                {over && <div className="niveau" style={{ left: `${(prevu / base) * 100}%`, width: 2 }} />}
+              </div>
+
+              <div className="grid4" style={{ marginTop: 12 }}>
+                <Cellule label="Prévu" val={prevu} />
+                <Cellule label="Payé" val={l.paye} />
+                <Cellule label="Engagé" val={l.engage} />
+                <Cellule label={over ? "Dépassé de" : "Reste"} val={Math.abs(prevu - l.total)} rouge={over} />
+              </div>
+
+              {poste === "Imprévus" && l.total === 0 && prevu > 0 && (
+                <p style={{ fontSize: 14, color: C.mine, lineHeight: 1.55, margin: "12px 0 0" }}>
+                  Provision intacte. Cet argent n'est pas disponible : il attend la mauvaise surprise.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <input className="field" placeholder="Ajouter un poste (Électricité, Plomberie…)"
+          value={nouveau} onChange={e => setNouveau(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && ajouter()} style={{ flex: 1 }} />
+        <button className="btn" onClick={ajouter} disabled={!nouveau.trim()}>Ajouter</button>
+      </div>
+    </>
+  );
+}
+
+function Cellule({ label, val, rouge }) {
+  return (
+    <div className="cellule">
+      <span style={{ display: "block", fontSize: 12.5, fontWeight: 500, color: rouge ? C.brique : C.mine }}>{label}</span>
+      <span className="num" style={{ fontSize: 18, display: "block", marginTop: 3, color: rouge ? C.brique : C.ardoise }}>
+        {eurCourt(val)}
+      </span>
+    </div>
+  );
+}
+
+/* ---------------------------------- Bilan */
+function Bilan({ projet, entrees, plafond, majProjet }) {
+  const acq = projet.acquisition || [];
+  const manquant = acq.filter(a => !String(a.montant).trim());
+  const totalAcq = acq.reduce((s,a) => s + N(a.montant), 0);
+  const t = chiffrer(entrees);
+  const revient = totalAcq + t.total;
+  const revientMax = totalAcq + Math.max(plafond, t.total);
+  const setLigne = (id,k,v) => majProjet({ acquisition: acq.map(a => a.id===id ? { ...a, [k]: k==="montant"?v.replace(",","."):v } : a) });
+  const ajouter = () => majProjet({ acquisition: [...acq, { id:uid(), libelle:"", montant:"" }] });
+  const retirer = (id) => majProjet({ acquisition: acq.filter(a=>a.id!==id) });
+  const barres = [
+    ...acq.filter(a=>N(a.montant)>0).map((a,i)=>({ nom:a.libelle||"Sans libellé", val:N(a.montant), couleur:SERIE[i%3] })),
+    { nom:"Travaux payés", val:t.paye, couleur:C.vert },
+    { nom:"Travaux engagés", val:t.engage, couleur:"#7FC4AE" },
+    { nom:"Travaux à venir", val:Math.max(0, plafond-t.total), couleur:C.trait },
+  ].filter(b=>b.val>0);
+
+  return (
+    <>
+      <div className="card" style={{ padding:16, marginBottom:14 }}>
+        <div className="eyebrow">Coût de revient de l'opération</div>
+        <div style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontWeight:800, fontSize:32,
+          letterSpacing:"-.03em", margin:"4px 0 2px", fontVariantNumeric:"tabular-nums" }}>{eur(revient)}</div>
+        <div className="num" style={{ fontSize:11.5, color:C.mine, lineHeight:1.5 }}>
+          {eurCourt(revientMax)} si tu consommes tout ton plafond travaux
+          {manquant.length>0 && <span style={{ color:C.brique }}> · {manquant.map(m=>m.libelle||"une ligne").join(", ")} : montant manquant</span>}
+        </div>
+        {barres.length>0 && <div style={{ marginTop:16 }}><BarreEmpilee data={barres} /></div>}
+        <div style={{ display:"flex", flexWrap:"wrap", gap:"6px 14px", marginTop:10 }}>
+          {barres.map(b => (
+            <span key={b.nom} style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:C.mine }}>
+              <span style={{ width:10, height:10, borderRadius:3, background:b.couleur }} />{b.nom}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom:12 }}>
+        <div style={{ padding:"13px 14px", borderBottom:`1px solid ${C.trait}` }}>
+          <span className="eyebrow">Acquisition — dépenses définitives</span>
+        </div>
+        {acq.map(a => (
+          <div key={a.id} style={{ display:"flex", gap:8, padding:"10px 14px", borderTop:`1px solid ${C.trait}`, alignItems:"center" }}>
+            <input className="field" value={a.libelle} placeholder="Libellé"
+              onChange={e=>setLigne(a.id,"libelle",e.target.value)} style={{ flex:1, padding:"7px 10px", fontSize:13.5 }} />
+            <input className="field mono" inputMode="decimal" value={a.montant} placeholder="0"
+              onChange={e=>setLigne(a.id,"montant",e.target.value)}
+              style={{ width:116, padding:"7px 10px", fontSize:13, textAlign:"right",
+                borderColor: String(a.montant).trim() ? C.trait : C.brique }} />
+            <button className="btn-ghost" onClick={()=>retirer(a.id)} style={{ padding:"6px 10px", fontSize:12 }}>×</button>
+          </div>
+        ))}
+        <div style={{ display:"flex", padding:"11px 14px", borderTop:`2px solid ${C.ardoise}`, alignItems:"center" }}>
+          <span className="h2" style={{ flex:1, fontSize:13 }}>Total acquisition</span>
+          <span className="num" style={{ fontSize:15 }}>{eur(totalAcq)}</span>
+        </div>
+      </div>
+      <button className="btn-ghost" onClick={ajouter} style={{ marginBottom:14 }}>Ajouter une ligne d'acquisition</button>
+
+      <div className="card" style={{ padding:14 }}>
+        <div className="eyebrow" style={{ marginBottom:10 }}>Travaux — enveloppe de {eurCourt(plafond)}</div>
+        <div className="grid4">
+          <Cellule label="Plafond" val={plafond} />
+          <Cellule label="Payé" val={t.paye} />
+          <Cellule label="Engagé" val={t.engage} />
+          <Cellule label={plafond-t.total<0 ? "Dépassé de" : "Disponible"} val={Math.abs(plafond-t.total)} rouge={plafond-t.total<0} />
+        </div>
+        <p style={{ fontSize:12, color:C.mine, lineHeight:1.55, margin:"12px 0 0" }}>
+          L'acquisition et les travaux restent séparés : l'achat est derrière toi, l'enveloppe travaux
+          est la seule où tu décides encore.
+        </p>
+      </div>
+    </>
+  );
+}
+
+
+/* ---------------------------------- Patrimoine
+ * Des soldes à une date, pas des flux. Un placement non daté ment.
+ */
+const CAT_PAT = [
+  ["Comptes courants", "#1E6FBF", 0],
+  ["Livrets & épargne", "#12A594", 0],
+  ["PEL / CEL", "#6F9440", 90],
+  ["Assurance vie", "#7C5CBF", 90],
+  ["Actions & PEA", "#E9A13B", 30],
+  ["Cryptomonnaies", "#DE5B3B", 7],
+  ["Autres", "#D4587A", 180],
+];
+const catInfo = (c) => CAT_PAT.find(x => x[0] === c) || CAT_PAT[CAT_PAT.length - 1];
+const joursDepuis = (d) => { try { return Math.floor((Date.now() - new Date(d + "T12:00").getTime()) / 864e5); } catch { return null; } };
+
+function PatrimoineHero({ projets, actif, setActif, comptes }) {
+  const total = comptes.reduce((s, c) => s + N(c.montant), 0);
+  const perimes = comptes.filter(c => { const [, , lim] = catInfo(c.categorie); const j = joursDepuis(c.maj); return lim > 0 && j !== null && j > lim; });
+  return (
+    <header style={{ padding: "22px 0 18px" }}>
+      <div className="eyebrow">Carnet de chantier</div>
+      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
+        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
+          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0, width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
+        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+      </select>
+      <div style={{ padding: 20, borderRadius: 20, color: "#fff",
+        background: "linear-gradient(160deg, #8E72D6 0%, #7C5CBF 55%, #52389C 100%)",
+        boxShadow: "0 16px 34px -16px rgba(124,92,191,.75)" }}>
+        <span style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 15, color: "rgba(255,255,255,.9)" }}>
+          Total des avoirs
+        </span>
+        <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 48,
+          letterSpacing: "-.04em", lineHeight: 1.05, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+          {eurCourt(total)}
+        </div>
+        <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0", color: "rgba(255,255,255,.85)" }}>
+          {comptes.length === 0 ? "Aucun avoir saisi."
+            : perimes.length === 0 ? `${comptes.length} ligne${comptes.length > 1 ? "s" : ""} · toutes à jour.`
+            : `Somme de ce que tu as saisi, à la date où tu l'as saisi. ${perimes.length} ligne${perimes.length > 1 ? "s ont" : " a"} vieilli : ce total est faux d'autant.`}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function Avoirs({ projet, majProjet }) {
+  const comptes = projet.comptes || [];
+  const set = (id, k, v) => majProjet({ comptes: comptes.map(c => c.id === id ? { ...c, [k]: k === "montant" ? v.replace(",", ".") : v } : c) });
+  const ajouter = () => majProjet({ comptes: [...comptes, { id: uid(), nom: "", categorie: CAT_PAT[0][0], montant: "", maj: today(), note: "" }] });
+  const retirer = (id) => majProjet({ comptes: comptes.filter(c => c.id !== id) });
+
+  return (
+    <>
+      <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+        <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0, color: C.mine }}>
+          Des libellés et des montants, rien d'autre. <strong style={{ color: C.brique }}>Jamais de numéro de compte,
+          d'IBAN, d'identifiant ni de phrase de récupération crypto.</strong> Cette application n'a pas de mot de passe.
+        </p>
+      </div>
+
+      <div style={{ display: "grid", gap: 12 }}>
+        {comptes.map(c => {
+          const [, col, lim] = catInfo(c.categorie);
+          const j = joursDepuis(c.maj);
+          const vieux = lim > 0 && j !== null && j > lim;
+          return (
+            <div key={c.id} className="card" style={{ padding: 16, background: col + "12", borderColor: vieux ? C.brique : col + "45" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                <span style={{ width: 16, height: 16, borderRadius: 6, background: col, flexShrink: 0 }} />
+                <input className="field" value={c.nom} placeholder="Livret A, PEA Boursorama, Bitcoin…"
+                  onChange={e => set(c.id, "nom", e.target.value)}
+                  style={{ flex: 1, background: "#fff", borderColor: col + "55", fontWeight: 600 }} />
+                <button className="btn-ghost" onClick={() => retirer(c.id)}
+                  style={{ padding: "9px 13px", background: "transparent" }}>×</button>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <select className="field" value={c.categorie} onChange={e => set(c.id, "categorie", e.target.value)}
+                  style={{ flex: "2 1 180px", background: "#fff", borderColor: col + "55" }}>
+                  {CAT_PAT.map(([n]) => <option key={n}>{n}</option>)}
+                </select>
+                <input className="field mono" inputMode="decimal" value={c.montant} placeholder="0"
+                  onChange={e => set(c.id, "montant", e.target.value)}
+                  style={{ flex: "1 1 130px", textAlign: "right", fontSize: 18, background: "#fff", borderColor: col + "55" }} />
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13.5, color: C.mine }}>Valeur au</span>
+                <input className="field mono" type="date" value={c.maj} onChange={e => set(c.id, "maj", e.target.value)}
+                  style={{ width: 160, padding: "8px 10px", fontSize: 14, background: "#fff", borderColor: vieux ? C.brique : col + "55" }} />
+                <button className="btn-ghost" onClick={() => set(c.id, "maj", today())} style={{ padding: "8px 12px", fontSize: 13 }}>
+                  Aujourd'hui
+                </button>
+                {j !== null && j > 0 && (
+                  <span className="pill" style={{ background: vieux ? C.briquePale : col + "22", color: vieux ? C.brique : col }}>
+                    {vieux ? `Périmé — ${j} jours` : `il y a ${j} j`}
+                  </span>
+                )}
+              </div>
+              {vieux && (
+                <p style={{ fontSize: 13, color: C.brique, lineHeight: 1.5, margin: "10px 0 0" }}>
+                  {c.categorie === "Cryptomonnaies"
+                    ? "Une crypto de plus d'une semaine ne vaut rien comme information. Vérifie le cours et ressaisis."
+                    : `Ce montant date de ${j} jours. Il a bougé depuis.`}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <button className="btn" onClick={ajouter} style={{ marginTop: 14, width: "100%" }}>Ajouter un avoir</button>
+    </>
+  );
+}
+
+function Repartition({ projet }) {
+  const comptes = projet.comptes || [];
+  const parCat = CAT_PAT.map(([nom, couleur]) => ({
+    nom, couleur,
+    total: comptes.filter(c => c.categorie === nom).reduce((s, c) => s + N(c.montant), 0),
+  })).filter(d => d.total > 0).sort((a, b) => b.total - a.total);
+  const total = parCat.reduce((s, d) => s + d.total, 0);
+
+  if (!parCat.length) return (
+    <div className="card" style={{ padding: 32, textAlign: "center" }}>
+      <div className="h2" style={{ marginBottom: 8 }}>Rien à répartir</div>
+      <p style={{ fontSize: 15, color: C.mine, lineHeight: 1.6, margin: 0 }}>Ajoute tes avoirs dans l'onglet précédent.</p>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+        <div className="lab" style={{ marginBottom: 12 }}>Répartition de vos avoirs</div>
+        <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+          <Donut data={parCat} size={168} />
+          <div style={{ flex: 1, minWidth: 190, display: "grid", gap: 9 }}>
+            {parCat.map(d => (
+              <div key={d.nom} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ width: 14, height: 14, borderRadius: 5, background: d.couleur, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: 15 }}>{d.nom}</span>
+                <span className="num" style={{ fontSize: 15 }}>{eurCourt(d.total)}</span>
+                <span className="num" style={{ fontSize: 13, color: C.mine, width: 42, textAlign: "right" }}>
+                  {Math.round((d.total / total) * 100)} %
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 16 }}>
+        <div className="lab" style={{ marginBottom: 8 }}>Ce que ce graphique ne dit pas</div>
+        <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0, color: C.mine }}>
+          Il additionne des choses qui ne se valent pas. Un livret est disponible demain ; une assurance vie
+          demande des semaines ; un PEL se casse avec des conséquences ; une crypto peut perdre un tiers pendant
+          que tu lis cette phrase. Un même euro n'a pas la même valeur selon la ligne où il se trouve.
+          Ce n'est ni un bilan comptable ni un conseil — je ne suis pas ton conseiller financier.
+        </p>
+      </div>
+    </>
+  );
+}
+
+/* ---------------------------------- Projets & réglages */
+function Projets({ projets, actif, setActif, maj, entrees, projet, majProjet, setErreur, onDeco, onChangerCarnet }) {
+  const [nom, setNom] = useState("");
+  const [type, setType] = useState("travaux");
+  const [k, setK] = useState(cle());
+  const [dit, setDit] = useState("");
+  const refImport = useRef(null);
+
+  const creer = () => {
+    if (!nom.trim()) return;
+    const p = { id:uid(), nom:nom.trim(), type, plafond:"", acquisition:[], comptes:[],
+      prevus:Object.fromEntries((POSTES_DEFAUT[type]||[]).map(x=>[x,""])), cree:today() };
+    maj([...projets, p]); setActif(p.id); setNom("");
+  };
+
+  const exporterCSV = () => {
+    const l = [["date","type","statut","libelle","fournisseur","poste","moyen","montant"]];
+    entrees.forEach(e => l.push([e.date,e.type,e.statut||"",e.libelle,e.fournisseur,e.poste,e.moyen,N(e.montant)]));
+    l.push([]); l.push(["ACQUISITION","","","","","","",""]);
+    (projet.acquisition||[]).forEach(a => l.push(["","acquisition","",a.libelle,"","","",N(a.montant)]));
+    const csv = l.map(r => r.map(c => `"${String(c ?? "").replace(/"/g,'""')}"`).join(";")).join("\n");
+    telecharger(new Blob(["\uFEFF"+csv], { type:"text/csv;charset=utf-8" }),
+      `${projet.nom.replace(/\W+/g,"-").toLowerCase()}-${today()}.csv`);
+  };
+
+  const exporterJSON = async () => {
+    setDit("Export en cours…");
+    const paquet = { version: 2, exporte: new Date().toISOString(), carnet: CARNET_INFO?.nom, projets, entrees: {}, photos: {} };
+    for (const p of projets) {
+      const l = await sGet(kEntrees(p.id), []);
+      paquet.entrees[p.id] = l;
+      for (const e of l) if (e.photo) { const ph = await brut.get(kPhoto(e.id)); if (ph) paquet.photos[e.id] = ph; }
+    }
+    telecharger(new Blob([JSON.stringify(paquet)], { type: "application/json" }), `carnet-de-chantier-${today()}.json`);
+    setDit("");
+  };
+
+  const importerJSON = async (f) => {
+    if (!f) return;
+    try {
+      const p = JSON.parse(await f.text());
+      if (!p.projets || !p.entrees) throw new Error("format");
+      if (!window.confirm("Cet import remplace TOUT le contenu du carnet partagé — chez Thomas aussi, immédiatement. Continuer ?")) return;
+      setDit("Import en cours…");
+      await supa.from("donnees").delete().eq("carnet_id", CARNET);
+      await supa.from("pieces").delete().eq("carnet_id", CARNET);
+      await sSet(K_PROJETS, p.projets);
+      for (const [id, v] of Object.entries(p.entrees)) await sSet(kEntrees(id), v);
+      for (const [id, v] of Object.entries(p.photos || {})) await brut.set(kPhoto(id), v);
+      window.location.reload();
+    } catch { setErreur("Ce fichier n'est pas un export valide du carnet."); setDit(""); }
+  };
+
+  return (
+    <>
+      <div className="card" style={{ padding:14, marginBottom:14 }}>
+        <label className="lab">Nom du projet actif</label>
+        <input className="field" value={projet.nom} onChange={e=>majProjet({ nom:e.target.value })} />
+      </div>
+
+      <div className="card" style={{ padding:14, marginBottom:14 }}>
+        <div className="eyebrow" style={{ marginBottom:10 }}>Nouveau projet</div>
+        <input className="field" placeholder="Budget courant, Cabinet Valbonne…" value={nom}
+          onChange={e=>setNom(e.target.value)} style={{ marginBottom:8 }} />
+        <div style={{ display:"flex", gap:8 }}>
+          <select className="field" value={type} onChange={e=>setType(e.target.value)} style={{ flex:1 }}>
+            <option value="travaux">Chantier / travaux</option>
+            <option value="budget">Budget courant</option>
+            <option value="patrimoine">Patrimoine — comptes & placements</option>
+            <option value="libre">Libre</option>
+          </select>
+          <button className="btn" onClick={creer} disabled={!nom.trim()}>Créer</button>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom:14 }}>
+        {projets.map(p => (
+          <button key={p.id} className="row" onClick={()=>setActif(p.id)}>
+            <span style={{ flex:1 }}>
+              <span className="h2" style={{ fontSize:14 }}>{p.nom}</span>
+              <span className="eyebrow" style={{ display:"block", fontSize:9, marginTop:3 }}>
+                {p.type==="travaux"?"Chantier":p.type==="budget"?"Budget courant":p.type==="patrimoine"?"Patrimoine":"Libre"}
+                {N(p.plafond)>0 && ` · plafond ${eurCourt(N(p.plafond))}`}
+              </span>
+            </span>
+            {p.id===actif && <span className="tag" style={{ background:C.cordeauPale, color:C.cordeau, border:`1px solid ${C.cordeau}` }}>Actif</span>}
+          </button>
+        ))}
+      </div>
+
+      <div className="card" style={{ padding:14, marginBottom:14 }}>
+        <div className="eyebrow" style={{ marginBottom:8 }}>Lecture des factures par Claude</div>
+        <p style={{ fontSize:12.5, color:C.mine, lineHeight:1.55, margin:"0 0 10px" }}>
+          Facultatif. Sans clé, l'application marche très bien — tu saisis les champs à la main.
+          Avec une clé, Claude lit tes photos et tes PDF et remplit les champs tout seul.
+          <strong style={{ color:C.ardoise }}> La clé reste sur cet appareil</strong>, elle n'est ni dans le fichier ni partagée.
+          Chaque lecture t'est facturée quelques centimes par Anthropic.
+        </p>
+        <input className="field mono" type="password" placeholder="sk-ant-…" value={k}
+          onChange={e=>setK(e.target.value)} style={{ marginBottom:8, fontSize:13 }} />
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <button className="btn-ghost" onClick={()=>{ brut.set(K_CLE, k.trim()); setDit("Clé enregistrée sur cet appareil."); setTimeout(()=>setDit(""),2500); }}>
+            Enregistrer la clé
+          </button>
+          <button className="btn-ghost" onClick={()=>{ brut.del(K_CLE); setK(""); setDit("Clé effacée."); setTimeout(()=>setDit(""),2500); }}>
+            Effacer
+          </button>
+          {dit && <span style={{ fontSize:12, color:C.vert }}>{dit}</span>}
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+        <div className="lab" style={{ marginBottom: 8 }}>Partager ce carnet</div>
+        <p style={{ fontSize: 14, color: C.mine, lineHeight: 1.6, margin: "0 0 12px" }}>
+          Donne ce code à Thomas. Il crée son compte, colle le code, et vous êtes sur le même carnet —
+          ce que l'un écrit apparaît chez l'autre aussitôt.
+        </p>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="num" style={{ fontSize: 26, letterSpacing: ".12em", background: C.cordeauPale,
+            color: C.cordeau, padding: "10px 16px", borderRadius: 12, fontWeight: 500 }}>
+            {CARNET_INFO?.code || "…"}
+          </span>
+          <button className="btn-ghost" onClick={() => {
+            navigator.clipboard?.writeText(CARNET_INFO?.code || "");
+            setDit("Code copié."); setTimeout(() => setDit(""), 2500);
+          }}>Copier</button>
+          {dit && <span style={{ fontSize: 13, color: C.vert }}>{dit}</span>}
+        </div>
+        <p style={{ fontSize: 13, color: C.brique, lineHeight: 1.55, margin: "12px 0 0" }}>
+          Ce code ouvre tout le carnet. Envoie-le à Thomas, à personne d'autre.
+        </p>
+      </div>
+
+      <div className="card" style={{ padding: 16 }}>
+        <div className="lab" style={{ marginBottom: 8 }}>Tes données</div>
+        <p style={{ fontSize: 14, color: C.mine, lineHeight: 1.6, margin: "0 0 12px" }}>
+          Tout vit sur ton serveur Supabase, à toi seule. Un export de temps en temps reste ta sécurité :
+          une fausse manœuvre efface pour vous deux à la fois.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+          <button className="btn-ghost" onClick={exporterCSV} disabled={!entrees.length}>Export CSV</button>
+          <button className="btn-ghost" onClick={exporterJSON}>Export complet (JSON)</button>
+          <button className="btn-ghost" onClick={() => refImport.current?.click()}>Importer un JSON</button>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", borderTop: `1.5px solid ${C.trait}`, paddingTop: 14 }}>
+          <button className="btn-ghost" onClick={onChangerCarnet}>Changer de carnet</button>
+          <button className="btn-ghost" onClick={onDeco} style={{ color: C.brique, borderColor: C.brique }}>Se déconnecter</button>
+        </div>
+        <input ref={refImport} type="file" accept="application/json" style={{ display: "none" }}
+          onChange={e => { importerJSON(e.target.files?.[0]); e.target.value = ""; }} />
+      </div>
+    </>
+  );
+}
+
+function telecharger(blob, nom) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nom; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 20000);
+}
+
+/* ---------------------------------- Éditeur */
+function Editeur({ entree, postes, entrees, devis, onFermer, onEnregistrer, onSupprimer }) {
+  const vide = { id:uid(), date:today(), libelle:"", fournisseur:"", montant:"", moyen:"CB",
+    poste:postes[0], type:"depense", statut:"signe", note:"", lie:"", photo:false };
+  const [e, setE] = useState(entree || vide);
+  const [dictee, setDictee] = useState("");
+  const [charge, setCharge] = useState("");
+  const [pb, setPb] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const refCam = useRef(null), refFile = useRef(null);
+  const estPdf = typeof photo === "string" && photo.startsWith("data:application/pdf");
+  const aCle = !!cle();
+  const set = (k,v) => setE(p => ({ ...p, [k]:v }));
+
+  useEffect(() => {
+    if (entree?.photo) { (async () => { const v = await brut.get(kPhoto(entree.id)); if (v) setPhoto(v); })(); }
+  }, [entree]);
+
+  const appliquer = (d) => setE(p => ({ ...p,
+    date: d.date || p.date, libelle: d.libelle || p.libelle, fournisseur: d.fournisseur || p.fournisseur,
+    montant: d.montant ? String(d.montant) : p.montant,
+    moyen: MOYENS.includes(d.moyen) ? d.moyen : p.moyen,
+    poste: postes.includes(d.poste) ? d.poste : p.poste,
+    type: d.type === "devis" ? "devis" : p.type,
+  }));
+
+  const erreurClaude = (err) => {
+    const m = String(err?.message || "");
+    if (m === "no-key") return "Ajoute ta clé API dans l'onglet Projets pour que Claude lise tes documents.";
+    if (m === "api-401") return "Ta clé API est refusée. Vérifie-la dans l'onglet Projets.";
+    if (m === "api-429") return "Trop de demandes d'un coup. Réessaie dans un instant.";
+    return "La lecture a échoué. Remplis les champs à la main.";
+  };
+
+  const lireDictee = async () => {
+    if (!dictee.trim()) return;
+    setCharge("dictee"); setPb("");
+    try { appliquer(await claude([{ role:"user", content:`${CONSIGNE(postes)}\n\nTexte : "${dictee}"` }])); setDictee(""); }
+    catch (err) { setPb(erreurClaude(err)); }
+    setCharge("");
+  };
+
+  const choisirPiece = async (f) => {
+    if (!f) return;
+    setCharge("photo"); setPb("");
+    try {
+      const pdf = f.type === "application/pdf";
+      const b64 = pdf ? await lireBrut(f) : await compresser(f);
+      if (b64.length > 3_800_000) {
+        setPb(`Ce fichier est trop lourd (${(f.size/1e6).toFixed(1)} Mo) pour le stockage du navigateur. Garde-le dans ton cloud et colle le lien dans la note.`);
+        setCharge(""); return;
+      }
+      setPhoto(b64);
+      if (!aCle) { setCharge(""); return; }
+      const data = b64.split(",")[1];
+      try {
+        appliquer(await claude([{ role:"user", content:[
+          pdf ? { type:"document", source:{ type:"base64", media_type:"application/pdf", data } }
+              : { type:"image", source:{ type:"base64", media_type:"image/jpeg", data } },
+          { type:"text", text:`${CONSIGNE(postes)}\n\nLis cette facture ou ce devis et extrais l'écriture. Retiens le montant TTC net à payer.` },
+        ] }]));
+      } catch (err) { setPb("La pièce est jointe, mais " + erreurClaude(err).toLowerCase()); }
+    } catch { setPb("Ce fichier n'a pas pu être traité. Réessaie."); }
+    setCharge("");
+  };
+
+  const enregistrer = async () => {
+    setCharge("save");
+    try {
+      if (photo) await brut.set(kPhoto(e.id), photo); else await brut.del(kPhoto(e.id));
+      await onEnregistrer({ ...e, montant:N(e.montant), photo: !!photo });
+    } catch { setPb("Enregistrement impossible — le stockage du navigateur est probablement plein."); setCharge(""); }
+  };
+
+  return (
+    <div className="sheet" onClick={ev => ev.target===ev.currentTarget && onFermer()}>
+      <div className="sheet-in">
+        <div style={{ position:"sticky", top:0, background:C.platre, padding:"16px 16px 10px",
+          borderBottom:`1px solid ${C.trait}`, display:"flex", alignItems:"center", gap:10, zIndex:2 }}>
+          <span className="h2" style={{ flex:1 }}>{entree ? "Modifier l'écriture" : "Nouvelle écriture"}</span>
+          <button className="btn-ghost" onClick={onFermer}>Annuler</button>
+        </div>
+
+        <div style={{ padding:16 }}>
+          {!entree && (
+            <div className="card" style={{ padding:13, marginBottom:14, borderColor:C.cordeau }}>
+              <label className="lab">Saisie rapide — dicte avec le micro de ton clavier</label>
+              <textarea className="field" rows={2} value={dictee} onChange={ev=>setDictee(ev.target.value)}
+                placeholder="tringle à rideau chez Leroy Merlin 14,95 réglé par CB aujourd'hui"
+                style={{ resize:"vertical", marginBottom:8 }} />
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn-blue" onClick={lireDictee} disabled={!dictee.trim()||!!charge} style={{ flex:1 }}>
+                  {charge==="dictee" ? <><span className="spin" /> Lecture…</> : "Remplir les champs"}
+                </button>
+                <button className="btn-ghost" onClick={()=>refFile.current?.click()} disabled={!!charge}>
+                  {charge==="photo" ? <><span className="spin" /> Lecture…</> : "Joindre la facture"}
+                </button>
+              </div>
+              {!aCle && <p style={{ fontSize:11.5, color:C.mine, margin:"9px 0 0", lineHeight:1.5 }}>
+                Sans clé API, la saisie rapide ne fonctionne pas. Remplis les champs ci-dessous, ou ajoute ta clé dans l'onglet Projets.
+              </p>}
+            </div>
+          )}
+          <input ref={refCam} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+            onChange={ev=>{ choisirPiece(ev.target.files?.[0]); ev.target.value=""; }} />
+          <input ref={refFile} type="file" accept="image/*,application/pdf" style={{ display:"none" }}
+            onChange={ev=>{ choisirPiece(ev.target.files?.[0]); ev.target.value=""; }} />
+
+          {pb && <div style={{ fontSize:12.5, color:C.brique, marginBottom:12, lineHeight:1.45 }}>{pb}</div>}
+
+          <div style={{ display:"grid", gap:12 }}>
+            <div style={{ display:"flex", gap:10 }}>
+              <div style={{ flex:1 }}>
+                <label className="lab">Montant TTC</label>
+                <input className="field mono" inputMode="decimal" value={e.montant}
+                  onChange={ev=>set("montant",ev.target.value)} placeholder="0,00" />
+              </div>
+              <div style={{ flex:1 }}>
+                <label className="lab">Date</label>
+                <input className="field mono" type="date" value={e.date} onChange={ev=>set("date",ev.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className="lab">Libellé</label>
+              <input className="field" value={e.libelle} onChange={ev=>set("libelle",ev.target.value)} placeholder="Tringle à rideau" />
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <div style={{ flex:1 }}>
+                <label className="lab">Fournisseur</label>
+                <input className="field" value={e.fournisseur} onChange={ev=>set("fournisseur",ev.target.value)} placeholder="Leroy Merlin" />
+              </div>
+              <div style={{ flex:1 }}>
+                <label className="lab">Poste</label>
+                <select className="field" value={e.poste} onChange={ev=>set("poste",ev.target.value)}>
+                  {postes.map(p => <option key={p}>{p}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <div style={{ flex:1 }}>
+                <label className="lab">Nature</label>
+                <select className="field" value={e.type} onChange={ev=>set("type",ev.target.value)}>
+                  <option value="depense">Dépense payée</option>
+                  <option value="devis">Devis</option>
+                </select>
+              </div>
+              <div style={{ flex:1 }}>
+                <label className="lab">{e.type==="devis" ? "Statut" : "Payé par"}</label>
+                {e.type==="devis" ? (
+                  <select className="field" value={e.statut} onChange={ev=>set("statut",ev.target.value)}>
+                    <option value="signe">Signé — compte dans l'engagé</option>
+                    <option value="attente">En attente — ne compte pas</option>
+                  </select>
+                ) : (
+                  <select className="field" value={e.moyen} onChange={ev=>set("moyen",ev.target.value)}>
+                    {MOYENS.map(m => <option key={m}>{m}</option>)}
+                  </select>
+                )}
+              </div>
+            </div>
+
+            {e.type==="depense" && devis.length>0 && (
+              <div>
+                <label className="lab">Acompte sur un devis signé</label>
+                <select className="field" value={e.lie || ""} onChange={ev=>{
+                  const d = devis.find(x=>x.id===ev.target.value);
+                  setE(p => ({ ...p, lie:ev.target.value, poste: d ? d.poste : p.poste }));
+                }}>
+                  <option value="">Dépense indépendante</option>
+                  {devis.map(d => (
+                    <option key={d.id} value={d.id}>
+                      {d.libelle || "Devis"} — {eurCourt(N(d.montant))} ({eurCourt(Math.max(0, N(d.montant)-verse(entrees,d.id)))} restants)
+                    </option>
+                  ))}
+                </select>
+                {e.lie && (() => {
+                  const d = devis.find(x=>x.id===e.lie);
+                  if (!d) return null;
+                  const apres = N(d.montant) - verse(entrees,d.id) - N(e.montant) + (entree?.lie===e.lie ? N(entree.montant) : 0);
+                  return <p className="num" style={{ fontSize:11.5, color: apres<0?C.brique:C.mine, margin:"7px 0 0", lineHeight:1.5 }}>
+                    {apres<0 ? `Ce versement dépasse le devis de ${eurCourt(-apres)}. Vérifie le montant ou l'avenant.`
+                      : apres===0 ? "Ce versement solde le devis."
+                      : `Après ce versement, il restera ${eurCourt(apres)} à payer.`}
+                  </p>;
+                })()}
+              </div>
+            )}
+
+            <div>
+              <label className="lab">Note</label>
+              <textarea className="field" rows={2} value={e.note} onChange={ev=>set("note",ev.target.value)}
+                placeholder="Lien vers le devis PDF, garantie, remarque…" style={{ resize:"vertical" }} />
+            </div>
+
+            <div>
+              <label className="lab">Justificatif — photo ou PDF</label>
+              {photo ? (
+                <div>
+                  {estPdf ? (
+                    <div className="card" style={{ padding:14, display:"flex", alignItems:"center", gap:12 }}>
+                      <span className="tag" style={{ background:C.cordeauPale, color:C.cordeau, border:`1px solid ${C.cordeau}` }}>PDF</span>
+                      <span style={{ flex:1, fontSize:13 }}>Document joint</span>
+                      <button className="btn-ghost" onClick={()=>ouvrirPdf(photo)}>Ouvrir</button>
+                    </div>
+                  ) : (
+                    <img src={photo} alt="Justificatif" style={{ width:"100%", borderRadius:10, border:`1px solid ${C.trait}`, display:"block" }} />
+                  )}
+                  <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                    <button className="btn-ghost" onClick={()=>refFile.current?.click()}>Remplacer</button>
+                    <button className="btn-ghost" onClick={()=>setPhoto(null)}>Retirer</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display:"flex", gap:8 }}>
+                  <button className="btn-ghost" onClick={()=>refCam.current?.click()} disabled={!!charge} style={{ flex:1, padding:14 }}>
+                    {charge==="photo" ? <><span className="spin" /> Lecture…</> : "Photographier"}
+                  </button>
+                  <button className="btn-ghost" onClick={()=>refFile.current?.click()} disabled={!!charge} style={{ flex:1, padding:14 }}>
+                    Choisir un PDF
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display:"flex", gap:8, marginTop:20, paddingBottom:"env(safe-area-inset-bottom)" }}>
+            <button className="btn" onClick={enregistrer} disabled={!!charge} style={{ flex:1, padding:14 }}>
+              {charge==="save" ? <><span className="spin" /> Enregistrement…</> : "Enregistrer"}
+            </button>
+            {entree && <button className="btn-ghost" onClick={()=>onSupprimer(entree.id)}
+              style={{ color:C.brique, borderColor:C.brique }}>Supprimer</button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- pièces jointes */
+function lireBrut(file) {
+  return new Promise((res,rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(new Error("read"));
+    fr.readAsDataURL(file);
+  });
+}
+function ouvrirPdf(dataUrl) {
+  try {
+    const bin = atob(dataUrl.split(",")[1]);
+    const buf = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) buf[i] = bin.charCodeAt(i);
+    telecharger(new Blob([buf], { type:"application/pdf" }), "justificatif.pdf");
+  } catch {}
+}
+function compresser(file) {
+  return new Promise((res,rej) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1500;
+        const r = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width*r); cv.height = Math.round(img.height*r);
+        const cx = cv.getContext("2d");
+        cx.fillStyle = "#fff"; cx.fillRect(0,0,cv.width,cv.height);
+        cx.drawImage(img,0,0,cv.width,cv.height);
+        res(cv.toDataURL("image/jpeg", 0.72));
+      };
+      img.onerror = () => rej(new Error("image"));
+      img.src = fr.result;
+    };
+    fr.onerror = () => rej(new Error("read"));
+    fr.readAsDataURL(file);
+  });
+}
+
+
+/* ================================================================== *
+ *  ENTRÉE — réglage, connexion, choix du carnet, puis l'application.
+ * ================================================================== */
+
+function Ecran({ titre, sous, children }) {
+  return (
+    <div className="cdc" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <style>{CSS}</style>
+      <div style={{ width: "100%", maxWidth: 460 }}>
+        <div style={{ textAlign: "center", marginBottom: 22 }}>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 30,
+            letterSpacing: "-.03em", color: C.cordeau }}>{titre}</div>
+          {sous && <p style={{ fontSize: 15, color: C.mine, lineHeight: 1.6, margin: "8px 0 0" }}>{sous}</p>}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Alerte({ children }) {
+  if (!children) return null;
+  return (
+    <div style={{ background: C.briquePale, border: `1.5px solid ${C.brique}`, borderRadius: 12,
+      padding: 12, fontSize: 14, color: C.brique, lineHeight: 1.5, marginBottom: 14 }}>{children}</div>
+  );
+}
+
+function Config({ onOk }) {
+  const c = cfg() || {};
+  const [url, setUrl] = useState(c.url || "");
+  const [key, setKey] = useState(c.key || "");
+  const [pb, setPb] = useState("");
+
+  const valider = () => {
+    const u = url.trim().replace(/\/$/, "");
+    const k = key.trim();
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(u)) return setPb("L'URL doit ressembler à https://abcdefgh.supabase.co — sans barre oblique à la fin.");
+    if (k.length < 40) return setPb("La clé « anon public » est bien plus longue que ça. Reprends-la en entier.");
+    setCfg({ url: u, key: k });
+    onOk();
+  };
+
+  return (
+    <Ecran titre="Brancher le carnet" sous="À faire une seule fois, sur chaque appareil. Ces deux informations restent sur ton téléphone.">
+      <div className="card" style={{ padding: 18 }}>
+        <Alerte>{pb}</Alerte>
+        <ol style={{ fontSize: 14.5, lineHeight: 1.75, color: C.ardoise, margin: "0 0 16px", paddingLeft: 20 }}>
+          <li>Va sur <strong>supabase.com</strong>, crée un compte gratuit.</li>
+          <li>Crée un projet. Note bien le mot de passe qu'il te demande.</li>
+          <li>Ouvre <strong>SQL Editor</strong>, colle le fichier <strong>base-de-donnees.sql</strong> en entier, clique sur <strong>Run</strong>.</li>
+          <li>Va dans <strong>Settings → API</strong>, et recopie les deux valeurs ci-dessous.</li>
+        </ol>
+        <label className="lab">URL du projet</label>
+        <input className="field" value={url} onChange={e => setUrl(e.target.value)}
+          placeholder="https://abcdefgh.supabase.co" style={{ marginBottom: 12, fontSize: 14 }} />
+        <label className="lab">Clé « anon public »</label>
+        <textarea className="field" rows={3} value={key} onChange={e => setKey(e.target.value)}
+          placeholder="eyJhbGciOi…" style={{ marginBottom: 8, fontSize: 13, resize: "vertical" }} />
+        <p style={{ fontSize: 12.5, color: C.mine, lineHeight: 1.55, margin: "0 0 16px" }}>
+          Prends bien <strong>anon public</strong>, jamais <strong>service_role</strong> : celle-là ouvrirait tout à tout le monde.
+        </p>
+        <button className="btn-blue" onClick={valider} style={{ width: "100%" }}>Continuer</button>
+      </div>
+    </Ecran>
+  );
+}
+
+function Connexion({ onOk, onReconfig }) {
+  const [mode, setMode] = useState("entrer");
+  const [mail, setMail] = useState("");
+  const [mdp, setMdp] = useState("");
+  const [pb, setPb] = useState("");
+  const [attend, setAttend] = useState(false);
+
+  const go = async () => {
+    setPb(""); setAttend(true);
+    try {
+      const f = mode === "entrer" ? supa.auth.signInWithPassword({ email: mail.trim(), password: mdp })
+                                  : supa.auth.signUp({ email: mail.trim(), password: mdp });
+      const { data, error } = await f;
+      if (error) throw error;
+      if (!data.session) setPb("Compte créé. Confirme ton adresse par mail, puis reviens te connecter. (Tu peux désactiver cette étape dans Supabase → Authentication → Sign In / Providers → décoche « Confirm email ».)");
+      else onOk();
+    } catch (e) {
+      const m = String(e.message || "");
+      setPb(m.includes("Invalid login") ? "Adresse ou mot de passe incorrect."
+        : m.includes("already registered") ? "Cette adresse a déjà un compte. Passe par « J'ai déjà un compte »."
+        : m.includes("at least") ? "Le mot de passe doit faire au moins 6 caractères."
+        : m.includes("Failed to fetch") ? "Impossible de joindre le serveur. Vérifie l'URL dans les réglages, et ta connexion."
+        : m);
+    }
+    setAttend(false);
+  };
+
+  return (
+    <Ecran titre={mode === "entrer" ? "Se connecter" : "Créer un compte"}
+      sous="Thomas et toi avez chacun le vôtre. Vous partagerez le même carnet.">
+      <div className="card" style={{ padding: 18 }}>
+        <Alerte>{pb}</Alerte>
+        <label className="lab">Adresse mail</label>
+        <input className="field" type="email" autoComplete="email" value={mail}
+          onChange={e => setMail(e.target.value)} style={{ marginBottom: 12 }} />
+        <label className="lab">Mot de passe</label>
+        <input className="field" type="password" value={mdp}
+          autoComplete={mode === "entrer" ? "current-password" : "new-password"}
+          onChange={e => setMdp(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && go()} style={{ marginBottom: 16 }} />
+        <button className="btn-blue" onClick={go} disabled={attend || !mail.trim() || mdp.length < 6} style={{ width: "100%" }}>
+          {attend ? <><span className="spin" /> …</> : mode === "entrer" ? "Entrer" : "Créer mon compte"}
+        </button>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, gap: 8 }}>
+          <button className="btn-ghost" onClick={() => { setMode(mode === "entrer" ? "creer" : "entrer"); setPb(""); }}>
+            {mode === "entrer" ? "Créer un compte" : "J'ai déjà un compte"}
+          </button>
+          <button className="btn-ghost" onClick={onReconfig}>Réglages</button>
+        </div>
+      </div>
+    </Ecran>
+  );
+}
+
+function ChoixCarnet({ onOk, onDeco }) {
+  const [liste, setListe] = useState(null);
+  const [nom, setNom] = useState("Notre carnet");
+  const [code, setCode] = useState("");
+  const [pb, setPb] = useState("");
+  const [attend, setAttend] = useState(false);
+
+  const charger = async () => {
+    const { data, error } = await supa.rpc("mes_carnets");
+    if (error) { setPb("Le script SQL n'a pas dû être exécuté. Reprends l'étape 3 des réglages. (" + error.message + ")"); setListe([]); }
+    else setListe(data || []);
+  };
+  useEffect(() => { charger(); }, []);
+
+  const creer = async () => {
+    setAttend(true); setPb("");
+    const { data, error } = await supa.rpc("creer_carnet", { p_nom: nom.trim() });
+    setAttend(false);
+    if (error) return setPb(error.message);
+    onOk(data[0]);
+  };
+  const rejoindre = async () => {
+    setAttend(true); setPb("");
+    const { data, error } = await supa.rpc("rejoindre_carnet", { p_code: code.trim() });
+    setAttend(false);
+    if (error) return setPb(error.message.includes("aucun carnet") ? "Ce code ne correspond à aucun carnet. Vérifie avec Thomas." : error.message);
+    onOk(data[0]);
+  };
+
+  if (liste === null) return <Ecran titre="Un instant"><div style={{ textAlign: "center" }}><span className="spin" /></div></Ecran>;
+
+  return (
+    <Ecran titre="Ton carnet" sous="Crée-le, ou rejoins celui que l'autre a déjà créé.">
+      <Alerte>{pb}</Alerte>
+
+      {liste.length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          {liste.map(c => (
+            <button key={c.id} className="row" onClick={() => onOk(c)}>
+              <span style={{ flex: 1 }}>
+                <span className="h2">{c.nom}</span>
+                <span className="num" style={{ display: "block", fontSize: 13, color: C.mine, marginTop: 3 }}>code {c.code}</span>
+              </span>
+              <span className="pill" style={{ background: C.cordeauPale, color: C.cordeau }}>Ouvrir</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+        <div className="lab">Créer un carnet</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input className="field" value={nom} onChange={e => setNom(e.target.value)} style={{ flex: 1 }} />
+          <button className="btn" onClick={creer} disabled={attend || !nom.trim()}>Créer</button>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+        <div className="lab">Rejoindre avec un code</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input className="field mono" value={code} onChange={e => setCode(e.target.value)}
+            placeholder="a1b2c3d4" style={{ flex: 1 }} onKeyDown={e => e.key === "Enter" && rejoindre()} />
+          <button className="btn" onClick={rejoindre} disabled={attend || !code.trim()}>Rejoindre</button>
+        </div>
+      </div>
+
+      <button className="btn-ghost" onClick={onDeco}>Se déconnecter</button>
+    </Ecran>
+  );
+}
+
+function Racine() {
+  const [etape, setEtape] = useState("boot");
+
+  const suite = async () => {
+    if (!ouvrirSupa()) return setEtape("config");
+    const { data } = await supa.auth.getSession();
+    if (!data.session) return setEtape("connexion");
+    const memo = localStorage.getItem("cdc:carnet");
+    if (memo) {
+      try {
+        const c = JSON.parse(memo);
+        const { data: l } = await supa.rpc("mes_carnets");
+        if ((l || []).some(x => x.id === c.id)) { CARNET = c.id; CARNET_INFO = c; return setEtape("pret"); }
+      } catch {}
+    }
+    setEtape("carnet");
+  };
+  useEffect(() => { suite(); }, []);
+
+  const choisir = (c) => {
+    CARNET = c.id; CARNET_INFO = c;
+    localStorage.setItem("cdc:carnet", JSON.stringify(c));
+    setEtape("pret");
+  };
+  const deconnecter = async () => {
+    await supa.auth.signOut();
+    localStorage.removeItem("cdc:carnet");
+    CARNET = null; CARNET_INFO = null;
+    setEtape("connexion");
+  };
+
+  if (etape === "boot") return <Ecran titre="Carnet de chantier"><div style={{ textAlign: "center" }}><span className="spin" /></div></Ecran>;
+  if (etape === "config") return <Config onOk={() => { supa = null; suite(); }} />;
+  if (etape === "connexion") return <Connexion onOk={suite} onReconfig={() => setEtape("config")} />;
+  if (etape === "carnet") return <ChoixCarnet onOk={choisir} onDeco={deconnecter} />;
+  return <App onDeco={deconnecter} onChangerCarnet={() => setEtape("carnet")} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Racine />);
+</script>
+<script>
+  // Facultatif : si le navigateur n'en veut pas, l'app marche quand même, avec réseau.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function () {});
+    });
+  }
+</script>
+</body>
+</html>
