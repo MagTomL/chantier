@@ -137,6 +137,21 @@ const today = () => new Date().toISOString().slice(0,10);
 const jour = (d) => { try { return new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}); } catch { return d; } };
 const joursJusque = (d) => { try { return Math.ceil((new Date(d+"T12:00").getTime() - Date.now()) / 864e5); } catch { return null; } };
 
+const PERIODES = [["", "Ponctuelle"], ["mois", "Tous les mois"], ["trimestre", "Tous les 3 mois"], ["an", "Tous les ans"]];
+function couleurCategorie(nom) {
+  if (!nom) return C.mine;
+  let h = 0;
+  for (let i = 0; i < nom.length; i++) h = (h * 31 + nom.charCodeAt(i)) >>> 0;
+  return SERIE[h % SERIE.length];
+}
+function avancerDate(d, periode) {
+  const dt = new Date((d || today()) + "T12:00");
+  if (periode === "mois") dt.setMonth(dt.getMonth() + 1);
+  else if (periode === "trimestre") dt.setMonth(dt.getMonth() + 3);
+  else if (periode === "an") dt.setFullYear(dt.getFullYear() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
 const POSTES_DEFAUT = {
   patrimoine: [],
   travaux: ["Maçonnerie","Menuiseries","Ferronnerie","Cuisine","Achats divers","Imprévus"],
@@ -290,6 +305,7 @@ function App({ onDeco, onChangerCarnet }) {
   const [entrees, setEntrees] = useState([]);
   const [onglet, setOnglet] = useState("journal");
   const [editeur, setEditeur] = useState(null);
+  const [edTache, setEdTache] = useState(null);
   const [erreur, setErreur] = useState("");
 
   useEffect(() => { (async () => {
@@ -417,6 +433,8 @@ function App({ onDeco, onChangerCarnet }) {
       ? ["avoirs", "repartition", "projets"]
       : projet.type === "courses"
       ? ["courses", "projets"]
+      : projet.type === "taches"
+      ? ["taches", "projets"]
       : ["journal", "budget", "bilan", "projets"];
     if (!valides.includes(onglet)) setOnglet(valides[0]);
   }, [projet?.type]);
@@ -447,6 +465,7 @@ function App({ onDeco, onChangerCarnet }) {
 
   const estPat = projet?.type === "patrimoine";
   const estCourses = projet?.type === "courses";
+  const estTaches = projet?.type === "taches";
   const plafond = N(projet?.plafond);
   const t = chiffrer(entrees);
   const reste = plafond - t.total;
@@ -459,6 +478,8 @@ function App({ onDeco, onChangerCarnet }) {
           ? <PatrimoineHero projets={projets} actif={actif} setActif={setActif} comptes={projet.comptes || []} />
           : estCourses
           ? <CoursesHero projets={projets} actif={actif} setActif={setActif} entrees={entrees} />
+          : estTaches
+          ? <TachesHero projets={projets} actif={actif} setActif={setActif} entrees={entrees} />
           : <Decompte projets={projets} actif={actif} setActif={setActif} plafond={plafond} t={t} reste={reste} />}
         {erreur && (
           <div className="card" style={{ padding:12, marginBottom:12, borderColor:C.brique, background:C.briquePale, fontSize:13 }}>
@@ -470,6 +491,8 @@ function App({ onDeco, onChangerCarnet }) {
             ? [["avoirs", "Avoirs"], ["repartition", "Répartition"], ["projets", "Projets"]]
             : estCourses
             ? [["courses", "Courses"], ["projets", "Projets"]]
+            : estTaches
+            ? [["taches", "Entretien"], ["projets", "Projets"]]
             : [["journal", "Journal"], ["budget", "Budget"], ["bilan", "Bilan"], ["projets", "Projets"]]).map(([k,l]) => (
             <button key={k} role="tab" aria-selected={onglet===k} className="tab" onClick={()=>setOnglet(k)}
               style={onglet===k ? { background: COUL_ONGLET[k] } : undefined}>{l}</button>
@@ -478,6 +501,7 @@ function App({ onDeco, onChangerCarnet }) {
         {onglet === "avoirs" && <Avoirs projet={projet} majProjet={majProjet} />}
         {onglet === "repartition" && <Repartition projet={projet} />}
         {onglet === "courses" && <Courses entrees={entrees} majEntrees={majEntrees} projet={projet} majProjet={majProjet} />}
+        {onglet === "taches" && <Taches entrees={entrees} onOuvrir={setEdTache} />}
         {onglet==="journal" && <Journal entrees={entrees} postes={postes} onOuvrir={setEditeur} />}
         {onglet==="budget" && <Budget projet={projet} postes={postes} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
         {onglet==="bilan" && <Bilan projet={projet} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
@@ -486,12 +510,23 @@ function App({ onDeco, onChangerCarnet }) {
           onDeco={onDeco} onChangerCarnet={onChangerCarnet} />}
       </div>
 
-      {onglet==="journal" && !estPat && !estCourses && (
+      {onglet==="journal" && !estPat && !estCourses && !estTaches && (
         <div style={{ position:"fixed", left:0, right:0, bottom:0, padding:"14px 14px calc(14px + env(safe-area-inset-bottom))",
           background:`linear-gradient(transparent, ${C.platre} 40%)` }}>
           <div style={{ maxWidth:780, margin:"0 auto" }}>
             <button className="btn-blue" style={{ width:"100%", padding:15 }} onClick={()=>setEditeur({id:null})}>
               Noter une dépense
+            </button>
+          </div>
+        </div>
+      )}
+
+      {onglet==="taches" && (
+        <div style={{ position:"fixed", left:0, right:0, bottom:0, padding:"14px 14px calc(14px + env(safe-area-inset-bottom))",
+          background:`linear-gradient(transparent, ${C.platre} 40%)` }}>
+          <div style={{ maxWidth:780, margin:"0 auto" }}>
+            <button className="btn-blue" style={{ width:"100%", padding:15 }} onClick={()=>setEdTache({id:null})}>
+              Ajouter une tâche
             </button>
           </div>
         </div>
@@ -512,6 +547,22 @@ function App({ onDeco, onChangerCarnet }) {
             await majEntrees(entrees.filter(x=>x.id!==id));
             try { await sDel(kPhoto(id)); } catch {}
             setEditeur(null);
+          }}
+        />
+      )}
+
+      {edTache && projet && (
+        <TacheEditeur
+          tache={edTache.id ? entrees.find(e=>e.id===edTache.id) : null}
+          categories={[...new Set(entrees.map(e => e.categorie).filter(Boolean))]}
+          onFermer={()=>setEdTache(null)}
+          onEnregistrer={async (t) => {
+            const next = edTache.id ? entrees.map(x=>x.id===t.id?t:x) : [t, ...entrees];
+            await majEntrees(next); setEdTache(null);
+          }}
+          onSupprimer={async (id) => {
+            await majEntrees(entrees.filter(x=>x.id!==id));
+            setEdTache(null);
           }}
         />
       )}
@@ -723,7 +774,7 @@ function Journal({ entrees, postes, onOuvrir }) {
 
 /* ---------------------------------- Budget */
 const COUL_ONGLET = { journal: "#1E6FBF", budget: "#12A594", bilan: "#E9A13B", projets: "#D4587A",
-  avoirs: "#7C5CBF", repartition: "#12A594", courses: "#6F9440" };
+  avoirs: "#7C5CBF", repartition: "#12A594", courses: "#6F9440", taches: "#E17B52" };
 
 function Budget({ projet, postes, entrees, plafond, majProjet }) {
   const [nouveau, setNouveau] = useState("");
@@ -1226,6 +1277,170 @@ function Courses({ entrees, majEntrees, projet, majProjet }) {
   );
 }
 
+/* ---------------------------------- Entretien / tâches */
+function TachesHero({ projets, actif, setActif, entrees }) {
+  const actives = entrees.filter(e => !e.termine);
+  const enRetard = actives.filter(e => e.echeance && joursJusque(e.echeance) < 0).length;
+  return (
+    <header style={{ padding: "22px 0 18px" }}>
+      <div className="eyebrow">Carnet de chantier</div>
+      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
+        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
+          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0, width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
+        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+      </select>
+      <div style={{ padding: 20, borderRadius: 20, color: "#fff",
+        background: "linear-gradient(160deg, #ED9B72 0%, #E17B52 55%, #A5502E 100%)",
+        boxShadow: "0 16px 34px -16px rgba(225,123,82,.75)" }}>
+        <span style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 15, color: "rgba(255,255,255,.9)" }}>
+          Entretien
+        </span>
+        <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 48,
+          letterSpacing: "-.04em", lineHeight: 1.05, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+          {actives.length} {actives.length > 1 ? "tâches" : "tâche"}
+        </div>
+        <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0", color: "rgba(255,255,255,.85)" }}>
+          {actives.length === 0 ? "Rien en attente."
+            : enRetard > 0 ? `${enRetard} en retard.`
+            : "Tout est à jour."}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function Taches({ entrees, onOuvrir }) {
+  const actives = entrees.filter(e => !e.termine).slice().sort((a, b) => {
+    if (!a.echeance && !b.echeance) return 0;
+    if (!a.echeance) return 1;
+    if (!b.echeance) return -1;
+    return a.echeance < b.echeance ? -1 : 1;
+  });
+  const faites = entrees.filter(e => e.termine);
+
+  if (!entrees.length) return (
+    <div className="card" style={{ padding: 32, textAlign: "center" }}>
+      <div className="h2" style={{ marginBottom: 8, fontSize: 18 }}>Rien à entretenir pour l'instant</div>
+      <p style={{ fontSize: 15, color: C.mine, margin: "0 auto", maxWidth: 380, lineHeight: 1.6 }}>
+        Ajoute une tâche : pompe à chaleur, piscine, jardin, voiture, vétérinaire…
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="card">
+      {actives.map(e => {
+        const col = couleurCategorie(e.categorie);
+        const j = e.echeance ? joursJusque(e.echeance) : null;
+        const retard = j !== null && j < 0, bientot = j !== null && j >= 0 && j <= 30;
+        const teinte = retard ? C.brique : bientot ? C.ocre : C.mine;
+        return (
+          <button key={e.id} className="row" onClick={() => onOuvrir({ id: e.id })} style={{ gap: 12, alignItems: "stretch" }}>
+            <span className="bande" style={{ background: col }} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 16, fontWeight: 600, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {e.libelle || "Sans nom"}
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 7, flexWrap: "wrap" }}>
+                {e.categorie && <span className="pill" style={{ background: col + "22", color: col }}>{e.categorie}</span>}
+                {e.echeance && (
+                  <span className="pill" style={{ background: teinte + "22", color: teinte }}>
+                    {retard ? `En retard de ${-j} j` : `${jour(e.echeance)} · ${j === 0 ? "aujourd'hui" : `dans ${j} j`}`}
+                  </span>
+                )}
+                {e.periodicite && <span className="pill" style={{ background: C.trait, color: C.mine }}>
+                  {PERIODES.find(p => p[0] === e.periodicite)?.[1]}
+                </span>}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+      {faites.length > 0 && (
+        <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.trait}` }}>
+          <span className="eyebrow">Terminées</span>
+        </div>
+      )}
+      {faites.map(e => (
+        <button key={e.id} className="row" onClick={() => onOuvrir({ id: e.id })} style={{ gap: 12, opacity: .55 }}>
+          <span className="bande" style={{ background: couleurCategorie(e.categorie) }} />
+          <span style={{ flex: 1, fontSize: 16, textDecoration: "line-through", color: C.mine, textAlign: "left" }}>{e.libelle}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TacheEditeur({ tache, categories, onFermer, onEnregistrer, onSupprimer }) {
+  const vide = { id: uid(), libelle: "", categorie: "", echeance: "", periodicite: "", note: "", termine: false };
+  const [e, setE] = useState(tache || vide);
+  const set = (k, v) => setE(p => ({ ...p, [k]: v }));
+
+  const marquerFait = () => {
+    if (e.periodicite) onEnregistrer({ ...e, echeance: avancerDate(e.echeance, e.periodicite) });
+    else onEnregistrer({ ...e, termine: true });
+  };
+
+  return (
+    <div className="sheet" onClick={ev => ev.target === ev.currentTarget && onFermer()}>
+      <div className="sheet-in">
+        <div style={{ position: "sticky", top: 0, background: C.platre, padding: "16px 16px 10px",
+          borderBottom: `1px solid ${C.trait}`, display: "flex", alignItems: "center", gap: 10, zIndex: 2 }}>
+          <span className="h2" style={{ flex: 1 }}>{tache ? "Modifier la tâche" : "Nouvelle tâche"}</span>
+          <button className="btn-ghost" onClick={onFermer}>Annuler</button>
+        </div>
+
+        <div style={{ padding: 16, display: "grid", gap: 12 }}>
+          <div>
+            <label className="lab">Nom</label>
+            <input className="field" value={e.libelle} onChange={ev => set("libelle", ev.target.value)}
+              placeholder="Vidange, vermifuge, taille des haies…" />
+          </div>
+          <div>
+            <label className="lab">Catégorie</label>
+            <input className="field" list="categories-taches" value={e.categorie}
+              onChange={ev => set("categorie", ev.target.value)}
+              placeholder="Pompe à chaleur, Piscine, Jardin, Voiture, Maya…" />
+            <datalist id="categories-taches">
+              {categories.map(c => <option key={c} value={c} />)}
+            </datalist>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label className="lab">Échéance</label>
+              <input className="field mono" type="date" value={e.echeance} onChange={ev => set("echeance", ev.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="lab">Périodicité</label>
+              <select className="field" value={e.periodicite} onChange={ev => set("periodicite", ev.target.value)}>
+                {PERIODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="lab">Note</label>
+            <textarea className="field" rows={2} value={e.note} onChange={ev => set("note", ev.target.value)}
+              placeholder="Contact, référence, remarque…" style={{ resize: "vertical" }} />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, padding: "0 16px 12px" }}>
+          <button className="btn" onClick={() => onEnregistrer(e)} disabled={!e.libelle.trim()} style={{ flex: 1, padding: 14 }}>
+            Enregistrer
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 8, padding: "0 16px 20px", paddingBottom: "calc(20px + env(safe-area-inset-bottom))" }}>
+          <button className="btn-ghost" onClick={marquerFait} disabled={!e.libelle.trim()} style={{ flex: 1 }}>
+            {e.periodicite ? "Fait — reprogrammer" : "Marquer comme fait"}
+          </button>
+          {tache && <button className="btn-ghost" onClick={() => onSupprimer(tache.id)}
+            style={{ color: C.brique, borderColor: C.brique }}>Supprimer</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------- Projets & réglages */
 function Projets({ projets, actif, setActif, maj, entrees, projet, majProjet, setErreur, onDeco, onChangerCarnet }) {
   const [nom, setNom] = useState("");
@@ -1296,6 +1511,7 @@ function Projets({ projets, actif, setActif, maj, entrees, projet, majProjet, se
             <option value="budget">Budget courant</option>
             <option value="patrimoine">Patrimoine — comptes & placements</option>
             <option value="courses">Courses</option>
+            <option value="taches">Entretien / tâches</option>
             <option value="libre">Libre</option>
           </select>
           <button className="btn" onClick={creer} disabled={!nom.trim()}>Créer</button>
@@ -1308,7 +1524,7 @@ function Projets({ projets, actif, setActif, maj, entrees, projet, majProjet, se
             <span style={{ flex:1 }}>
               <span className="h2" style={{ fontSize:14 }}>{p.nom}</span>
               <span className="eyebrow" style={{ display:"block", fontSize:9, marginTop:3 }}>
-                {p.type==="travaux"?"Chantier":p.type==="budget"?"Budget courant":p.type==="patrimoine"?"Patrimoine":p.type==="courses"?"Courses":"Libre"}
+                {p.type==="travaux"?"Chantier":p.type==="budget"?"Budget courant":p.type==="patrimoine"?"Patrimoine":p.type==="courses"?"Courses":p.type==="taches"?"Entretien":"Libre"}
                 {N(p.plafond)>0 && ` · plafond ${eurCourt(N(p.plafond))}`}
               </span>
             </span>
