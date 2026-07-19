@@ -135,6 +135,7 @@ const eur = (n) => new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR
 const eurCourt = (n) => new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
 const today = () => new Date().toISOString().slice(0,10);
 const jour = (d) => { try { return new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}); } catch { return d; } };
+const joursJusque = (d) => { try { return Math.ceil((new Date(d+"T12:00").getTime() - Date.now()) / 864e5); } catch { return null; } };
 
 const POSTES_DEFAUT = {
   patrimoine: [],
@@ -309,7 +310,7 @@ function App({ onDeco, onChangerCarnet }) {
       const seed = [
         { id:dCuis, ref:"26DK05994", date:"2026-05-14", libelle:"Cuisine Schmidt — BC 26DK05994",
           fournisseur:"SARL Aparte — Schmidt Vallauris", montant:38700, moyen:"", poste:"Cuisine",
-          type:"devis", statut:"signe", lie:"", photo:false,
+          type:"devis", statut:"signe", lie:"", photo:false, echeance:"2026-09-11",
           note:"Total net TTC. Livraison sem. du 07 au 11/09/2026, pose du 14 au 18/09/2026.\nSolde de 23 220 € dû le 11/09/2026.\nPlan de travail marbrier non inclus : avenant à venir.\nContact : Kevin Vilia, 04 93 45 41 33." },
         { id:uid(), ref:"26DK05994", date:"2026-05-14", libelle:"Acompte sur fournitures — cuisine Schmidt",
           fournisseur:"SARL Aparte — Schmidt Vallauris", montant:15480, moyen:"Chèque", poste:"Cuisine",
@@ -375,6 +376,17 @@ function App({ onDeco, onChangerCarnet }) {
         v.maj = 9;
         await sSet(K_PROJETS, p);
       } catch { setErreur("Le plan de travail n'a pas pu être rattaché."); }
+    }
+    // Le solde Schmidt a une date connue : elle doit apparaître dans les échéances.
+    if (v && (v.maj || 0) < 10) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        const suite = list.map(e => (e.ref === "26DK05994" && e.type === "devis" && !e.echeance)
+          ? { ...e, echeance: "2026-09-11" } : e);
+        await sSet(kEntrees(v.id), suite);
+        v.maj = 10;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("L'échéance du solde Schmidt n'a pas pu être inscrite."); }
     }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
@@ -583,6 +595,48 @@ function Bloc({ couleur, label, val, fort }) {
 /* ---------------------------------- Journal */
 const couleurPoste = (postes, nom) => SERIE[(Math.max(0, postes.indexOf(nom))) % SERIE.length];
 
+// Une échéance n'a de sens que sur un devis signé qui a encore un solde à payer.
+function Echeances({ entrees, postes, onOuvrir }) {
+  const lignes = entrees
+    .filter(e => e.type === "devis" && e.statut === "signe" && e.echeance)
+    .map(e => ({ e, solde: N(e.montant) - verse(entrees, e.id), j: joursJusque(e.echeance) }))
+    .filter(x => x.solde > 0)
+    .sort((a, b) => a.e.echeance < b.e.echeance ? -1 : 1);
+
+  if (!lignes.length) return null;
+
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div style={{ padding: "13px 14px", borderBottom: `1px solid ${C.trait}` }}>
+        <span className="eyebrow">Échéances à venir</span>
+      </div>
+      {lignes.map(({ e, solde, j }) => {
+        const col = couleurPoste(postes, e.poste);
+        const retard = j < 0, bientot = j >= 0 && j <= 30;
+        const teinte = retard ? C.brique : bientot ? C.ocre : C.mine;
+        return (
+          <button key={e.id} className="row" onClick={() => onOuvrir({ id: e.id })}>
+            <span className="bande" style={{ background: col }} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {e.libelle || "Sans libellé"}
+                </span>
+                <span className="num" style={{ fontSize: 16, fontWeight: 500, flexShrink: 0 }}>{eurCourt(solde)}</span>
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6, flexWrap: "wrap" }}>
+                <span className="pill" style={{ background: teinte + "22", color: teinte }}>
+                  {retard ? `En retard de ${-j} j` : `${jour(e.echeance)} · ${j===0 ? "aujourd'hui" : `dans ${j} j`}`}
+                </span>
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Journal({ entrees, postes, onOuvrir }) {
   const [q, setQ] = useState("");
   const filtre = entrees.filter(e => !q || [e.libelle, e.fournisseur, e.poste].join(" ").toLowerCase().includes(q.toLowerCase()));
@@ -598,6 +652,7 @@ function Journal({ entrees, postes, onOuvrir }) {
 
   return (
     <>
+      <Echeances entrees={entrees} postes={postes} onOuvrir={onOuvrir} />
       <input className="field" placeholder="Rechercher un libellé, un fournisseur, un poste"
         value={q} onChange={e => setQ(e.target.value)} style={{ marginBottom: 12 }} />
       <div className="card">
@@ -1192,7 +1247,7 @@ function telecharger(blob, nom) {
 /* ---------------------------------- Éditeur */
 function Editeur({ entree, postes, entrees, devis, onFermer, onEnregistrer, onSupprimer }) {
   const vide = { id:uid(), date:today(), libelle:"", fournisseur:"", montant:"", moyen:"CB",
-    poste:postes[0], type:"depense", statut:"signe", note:"", lie:"", photo:false };
+    poste:postes[0], type:"depense", statut:"signe", note:"", lie:"", photo:false, echeance:"" };
   const [e, setE] = useState(entree || vide);
   const [dictee, setDictee] = useState("");
   const [charge, setCharge] = useState("");
@@ -1349,6 +1404,16 @@ function Editeur({ entree, postes, entrees, devis, onFermer, onEnregistrer, onSu
                 )}
               </div>
             </div>
+
+            {e.type==="devis" && e.statut==="signe" && (
+              <div>
+                <label className="lab">Échéance du solde (facultatif)</label>
+                <input className="field mono" type="date" value={e.echeance||""} onChange={ev=>set("echeance",ev.target.value)} />
+                <p style={{ fontSize:12, color:C.mine, margin:"7px 0 0", lineHeight:1.5 }}>
+                  Si le devis a un solde à régler à une date connue, indique-la : elle apparaîtra dans les échéances à venir.
+                </p>
+              </div>
+            )}
 
             {e.type==="depense" && devis.length>0 && (
               <div>
