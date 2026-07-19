@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
-<title>Carnet de chantier</title>
+<title>Notre carnet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -27,7 +27,7 @@
 </style>
 </head>
 <body>
-<div id="root"><div id="boot">Carnet de chantier<br>chargement…</div></div>
+<div id="root"><div id="boot">Notre carnet<br>chargement…</div></div>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useMemo } = React;
@@ -298,6 +298,42 @@ function BarreEmpilee({ data }) {
   );
 }
 
+/* ---------------------------------- Navigation globale */
+const APP_NOM = "Notre carnet";
+const couleurType = (t) => ({
+  travaux: "#1E6FBF", budget: "#12A594", patrimoine: "#7C5CBF",
+  courses: "#6F9440", taches: "#E17B52",
+}[t] || C.mine);
+
+// Une barre unique en haut : le nom global, puis toutes les sections en clair.
+// Plus de menu déroulant caché — chaque domaine de la vie est visible d'un coup.
+function GlobalNav({ projets, actif, setActif }) {
+  return (
+    <div style={{ padding: "18px 0 8px" }}>
+      <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
+        letterSpacing: "-.03em", color: C.ardoise, marginBottom: 14 }}>{APP_NOM}</div>
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
+        {projets.map(p => {
+          const col = couleurType(p.type);
+          const on = p.id === actif;
+          return (
+            <button key={p.id} onClick={() => setActif(p.id)}
+              style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 7,
+                padding: "9px 15px", borderRadius: 999, whiteSpace: "nowrap",
+                fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 14,
+                border: on ? "none" : `1.5px solid ${C.trait}`,
+                background: on ? col : "#fff", color: on ? "#fff" : C.mine }}>
+              <span style={{ width: 9, height: 9, borderRadius: 999,
+                background: on ? "rgba(255,255,255,.9)" : col, flexShrink: 0 }} />
+              {p.nom}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ================================================================== */
 function App({ onDeco, onChangerCarnet }) {
   const [projets, setProjets] = useState(null);
@@ -461,7 +497,7 @@ function App({ onDeco, onChangerCarnet }) {
   };
 
   if (!projets) return <div className="cdc" style={{ display:"grid", placeItems:"center", height:"100vh" }}>
-    <style>{CSS}</style><div className="eyebrow">Carnet de chantier</div></div>;
+    <style>{CSS}</style><div className="eyebrow">Notre carnet</div></div>;
 
   const estPat = projet?.type === "patrimoine";
   const estCourses = projet?.type === "courses";
@@ -474,6 +510,7 @@ function App({ onDeco, onChangerCarnet }) {
     <div className="cdc">
       <style>{CSS}</style>
       <div className="wrap">
+        <GlobalNav projets={projets} actif={actif} setActif={setActif} />
         {estPat
           ? <PatrimoineHero projets={projets} actif={actif} setActif={setActif} comptes={projet.comptes || []} />
           : estCourses
@@ -583,14 +620,7 @@ function Decompte({ projets, actif, setActif, plafond, t, reste }) {
   const pcEng = Math.max(0, Math.min(100 - pcPaye, (t.engage / base) * 100));
 
   return (
-    <header style={{ padding: "22px 0 18px" }}>
-      <div className="eyebrow">Carnet de chantier</div>
-      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
-        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
-          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0,
-          width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
-        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-      </select>
+    <header style={{ padding: "6px 0 18px" }}>
 
       <div style={{
         padding: 20, borderRadius: 20, color: "#fff",
@@ -996,13 +1026,7 @@ function PatrimoineHero({ projets, actif, setActif, comptes }) {
   const total = comptes.reduce((s, c) => s + N(c.montant), 0);
   const perimes = comptes.filter(c => { const [, , lim] = catInfo(c.categorie); const j = joursDepuis(c.maj); return lim > 0 && j !== null && j > lim; });
   return (
-    <header style={{ padding: "22px 0 18px" }}>
-      <div className="eyebrow">Carnet de chantier</div>
-      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
-        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
-          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0, width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
-        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-      </select>
+    <header style={{ padding: "6px 0 18px" }}>
       <div style={{ padding: 20, borderRadius: 20, color: "#fff",
         background: "linear-gradient(160deg, #8E72D6 0%, #7C5CBF 55%, #52389C 100%)",
         boxShadow: "0 16px 34px -16px rgba(124,92,191,.75)" }}>
@@ -1146,13 +1170,7 @@ function CoursesHero({ projets, actif, setActif, entrees }) {
   const faites = entrees.length - restants;
   const totalPrix = entrees.reduce((s, e) => s + N(e.prix), 0);
   return (
-    <header style={{ padding: "22px 0 18px" }}>
-      <div className="eyebrow">Carnet de chantier</div>
-      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
-        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
-          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0, width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
-        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-      </select>
+    <header style={{ padding: "6px 0 18px" }}>
       <div style={{ padding: 20, borderRadius: 20, color: "#fff",
         background: "linear-gradient(160deg, #8CB35C 0%, #6F9440 55%, #4C6A2C 100%)",
         boxShadow: "0 16px 34px -16px rgba(111,148,64,.75)" }}>
@@ -1282,13 +1300,7 @@ function TachesHero({ projets, actif, setActif, entrees }) {
   const actives = entrees.filter(e => !e.termine);
   const enRetard = actives.filter(e => e.echeance && joursJusque(e.echeance) < 0).length;
   return (
-    <header style={{ padding: "22px 0 18px" }}>
-      <div className="eyebrow">Carnet de chantier</div>
-      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
-        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
-          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0, width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
-        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-      </select>
+    <header style={{ padding: "6px 0 18px" }}>
       <div style={{ padding: 20, borderRadius: 20, color: "#fff",
         background: "linear-gradient(160deg, #ED9B72 0%, #E17B52 55%, #A5502E 100%)",
         boxShadow: "0 16px 34px -16px rgba(225,123,82,.75)" }}>
@@ -2118,7 +2130,7 @@ function Racine() {
     setEtape("connexion");
   };
 
-  if (etape === "boot") return <Ecran titre="Carnet de chantier"><div style={{ textAlign: "center" }}><span className="spin" /></div></Ecran>;
+  if (etape === "boot") return <Ecran titre="Notre carnet"><div style={{ textAlign: "center" }}><span className="spin" /></div></Ecran>;
   if (etape === "config") return <Config onOk={() => { supa = null; suite(); }} />;
   if (etape === "connexion") return <Connexion onOk={suite} onReconfig={() => setEtape("config")} />;
   if (etape === "carnet") return <ChoixCarnet onOk={choisir} onDeco={deconnecter} />;
