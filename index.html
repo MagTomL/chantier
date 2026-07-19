@@ -477,7 +477,7 @@ function App({ onDeco, onChangerCarnet }) {
         </div>
         {onglet === "avoirs" && <Avoirs projet={projet} majProjet={majProjet} />}
         {onglet === "repartition" && <Repartition projet={projet} />}
-        {onglet === "courses" && <Courses entrees={entrees} majEntrees={majEntrees} />}
+        {onglet === "courses" && <Courses entrees={entrees} majEntrees={majEntrees} projet={projet} majProjet={majProjet} />}
         {onglet==="journal" && <Journal entrees={entrees} postes={postes} onOuvrir={setEditeur} />}
         {onglet==="budget" && <Budget projet={projet} postes={postes} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
         {onglet==="bilan" && <Bilan projet={projet} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
@@ -1093,6 +1093,7 @@ function Repartition({ projet }) {
 function CoursesHero({ projets, actif, setActif, entrees }) {
   const restants = entrees.filter(e => !e.coche).length;
   const faites = entrees.length - restants;
+  const totalPrix = entrees.reduce((s, e) => s + N(e.prix), 0);
   return (
     <header style={{ padding: "22px 0 18px" }}>
       <div className="eyebrow">Carnet de chantier</div>
@@ -1115,28 +1116,51 @@ function CoursesHero({ projets, actif, setActif, entrees }) {
           {entrees.length === 0 ? "Rien à acheter pour l'instant."
             : restants === 0 ? "Tout est dans le chariot."
             : `${faites} déjà dans le chariot.`}
+          {totalPrix > 0 && ` · ${eurCourt(totalPrix)} estimés`}
         </p>
       </div>
     </header>
   );
 }
 
-function Courses({ entrees, majEntrees }) {
+function Courses({ entrees, majEntrees, projet, majProjet }) {
   const [texte, setTexte] = useState("");
+  const [copie, setCopie] = useState("");
   const ajouter = () => {
     const libelle = texte.trim();
     if (!libelle) return;
-    majEntrees([{ id: uid(), libelle, coche: false, cree: Date.now() }, ...entrees]);
+    majEntrees([{ id: uid(), libelle, coche: false, cree: Date.now(), bio: false, prix: "" }, ...entrees]);
     setTexte("");
   };
-  const basculer = (id) => majEntrees(entrees.map(e => e.id === id ? { ...e, coche: !e.coche } : e));
+  const majItem = (id, patch) => majEntrees(entrees.map(e => e.id === id ? { ...e, ...patch } : e));
+  const basculer = (id) => majItem(id, { coche: !entrees.find(e => e.id === id).coche });
   const retirer = (id) => majEntrees(entrees.filter(e => e.id !== id));
   const viderCochees = () => majEntrees(entrees.filter(e => !e.coche));
   const aFaire = entrees.filter(e => !e.coche);
   const faites = entrees.filter(e => e.coche);
 
+  const chercher = (item) => {
+    const terme = item.bio ? `${item.libelle} bio` : item.libelle;
+    navigator.clipboard?.writeText(terme);
+    if (projet.leclercUrl) window.open(projet.leclercUrl, "_blank");
+    setCopie(item.id);
+    setTimeout(() => setCopie(""), 2500);
+  };
+
   return (
     <>
+      <details style={{ marginBottom: 14 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, color: C.mine, fontWeight: 600 }}>
+          Lien vers mon Leclerc Drive (facultatif)
+        </summary>
+        <p style={{ fontSize: 12.5, color: C.mine, lineHeight: 1.5, margin: "8px 0" }}>
+          L'app ne peut pas remplir ton panier toute seule — Leclerc ne le permet pas depuis une autre appli.
+          En échange, le bouton "Chercher" copie le nom de l'article et ouvre ce lien, prêt à coller dans leur recherche.
+        </p>
+        <input className="field mono" placeholder="https://xxxx.leclercdrive.fr" value={projet.leclercUrl || ""}
+          onChange={e => majProjet({ leclercUrl: e.target.value })} style={{ fontSize: 13 }} />
+      </details>
+
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <input className="field" placeholder="Lait, pain, ampoules…" value={texte}
           onChange={e => setTexte(e.target.value)} onKeyDown={e => e.key === "Enter" && ajouter()} style={{ flex: 1 }} />
@@ -1153,13 +1177,29 @@ function Courses({ entrees, majEntrees }) {
       ) : (
         <div className="card">
           {aFaire.map(e => (
-            <div key={e.id} className="row" style={{ gap: 12 }}>
-              <button onClick={() => basculer(e.id)} aria-label="Cocher l'article"
-                style={{ width: 24, height: 24, borderRadius: 7, border: `2px solid ${C.vert}`, background: "transparent", flexShrink: 0, padding: 0 }} />
-              <button onClick={() => basculer(e.id)} style={{ flex: 1, textAlign: "left", background: "transparent", border: 0, padding: 0, fontSize: 16 }}>
-                {e.libelle}
-              </button>
-              <button className="btn-ghost" onClick={() => retirer(e.id)} style={{ padding: "6px 10px", fontSize: 14 }}>×</button>
+            <div key={e.id} className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button onClick={() => basculer(e.id)} aria-label="Cocher l'article"
+                  style={{ width: 24, height: 24, borderRadius: 7, border: `2px solid ${C.vert}`, background: "transparent", flexShrink: 0, padding: 0 }} />
+                <button onClick={() => basculer(e.id)} style={{ flex: 1, textAlign: "left", background: "transparent", border: 0, padding: 0, fontSize: 16 }}>
+                  {e.libelle}
+                </button>
+                <button className="btn-ghost" onClick={() => retirer(e.id)} style={{ padding: "6px 10px", fontSize: 14 }}>×</button>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", paddingLeft: 36, flexWrap: "wrap" }}>
+                <button className="pill" onClick={() => majItem(e.id, { bio: !e.bio })}
+                  style={{ background: e.bio ? C.vert : "transparent", color: e.bio ? "#fff" : C.mine,
+                    border: e.bio ? "none" : `1.5px solid ${C.trait}` }}>
+                  {e.bio ? "Bio souhaité" : "Bio ?"}
+                </button>
+                <input className="field mono" inputMode="decimal" placeholder="prix" value={e.prix || ""}
+                  onChange={ev => majItem(e.id, { prix: ev.target.value.replace(",", ".") })}
+                  style={{ width: 76, padding: "5px 9px", fontSize: 13 }} />
+                <button className="btn-ghost" onClick={() => chercher(e)} style={{ padding: "5px 12px", fontSize: 13 }}>
+                  Chercher
+                </button>
+                {copie === e.id && <span style={{ fontSize: 12, color: C.vert }}>Copié — colle-le dans la recherche Leclerc.</span>}
+              </div>
             </div>
           ))}
           {faites.map(e => (
