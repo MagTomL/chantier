@@ -415,6 +415,8 @@ function App({ onDeco, onChangerCarnet }) {
     if (!projet) return;
     const valides = projet.type === "patrimoine"
       ? ["avoirs", "repartition", "projets"]
+      : projet.type === "courses"
+      ? ["courses", "projets"]
       : ["journal", "budget", "bilan", "projets"];
     if (!valides.includes(onglet)) setOnglet(valides[0]);
   }, [projet?.type]);
@@ -444,6 +446,7 @@ function App({ onDeco, onChangerCarnet }) {
     <style>{CSS}</style><div className="eyebrow">Carnet de chantier</div></div>;
 
   const estPat = projet?.type === "patrimoine";
+  const estCourses = projet?.type === "courses";
   const plafond = N(projet?.plafond);
   const t = chiffrer(entrees);
   const reste = plafond - t.total;
@@ -454,6 +457,8 @@ function App({ onDeco, onChangerCarnet }) {
       <div className="wrap">
         {estPat
           ? <PatrimoineHero projets={projets} actif={actif} setActif={setActif} comptes={projet.comptes || []} />
+          : estCourses
+          ? <CoursesHero projets={projets} actif={actif} setActif={setActif} entrees={entrees} />
           : <Decompte projets={projets} actif={actif} setActif={setActif} plafond={plafond} t={t} reste={reste} />}
         {erreur && (
           <div className="card" style={{ padding:12, marginBottom:12, borderColor:C.brique, background:C.briquePale, fontSize:13 }}>
@@ -463,6 +468,8 @@ function App({ onDeco, onChangerCarnet }) {
         <div className="tabs" role="tablist" style={{ marginBottom:14 }}>
           { (estPat
             ? [["avoirs", "Avoirs"], ["repartition", "Répartition"], ["projets", "Projets"]]
+            : estCourses
+            ? [["courses", "Courses"], ["projets", "Projets"]]
             : [["journal", "Journal"], ["budget", "Budget"], ["bilan", "Bilan"], ["projets", "Projets"]]).map(([k,l]) => (
             <button key={k} role="tab" aria-selected={onglet===k} className="tab" onClick={()=>setOnglet(k)}
               style={onglet===k ? { background: COUL_ONGLET[k] } : undefined}>{l}</button>
@@ -470,6 +477,7 @@ function App({ onDeco, onChangerCarnet }) {
         </div>
         {onglet === "avoirs" && <Avoirs projet={projet} majProjet={majProjet} />}
         {onglet === "repartition" && <Repartition projet={projet} />}
+        {onglet === "courses" && <Courses entrees={entrees} majEntrees={majEntrees} />}
         {onglet==="journal" && <Journal entrees={entrees} postes={postes} onOuvrir={setEditeur} />}
         {onglet==="budget" && <Budget projet={projet} postes={postes} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
         {onglet==="bilan" && <Bilan projet={projet} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
@@ -478,7 +486,7 @@ function App({ onDeco, onChangerCarnet }) {
           onDeco={onDeco} onChangerCarnet={onChangerCarnet} />}
       </div>
 
-      {onglet==="journal" && !estPat && (
+      {onglet==="journal" && !estPat && !estCourses && (
         <div style={{ position:"fixed", left:0, right:0, bottom:0, padding:"14px 14px calc(14px + env(safe-area-inset-bottom))",
           background:`linear-gradient(transparent, ${C.platre} 40%)` }}>
           <div style={{ maxWidth:780, margin:"0 auto" }}>
@@ -715,7 +723,7 @@ function Journal({ entrees, postes, onOuvrir }) {
 
 /* ---------------------------------- Budget */
 const COUL_ONGLET = { journal: "#1E6FBF", budget: "#12A594", bilan: "#E9A13B", projets: "#D4587A",
-  avoirs: "#7C5CBF", repartition: "#12A594" };
+  avoirs: "#7C5CBF", repartition: "#12A594", courses: "#6F9440" };
 
 function Budget({ projet, postes, entrees, plafond, majProjet }) {
   const [nouveau, setNouveau] = useState("");
@@ -1082,6 +1090,102 @@ function Repartition({ projet }) {
   );
 }
 
+function CoursesHero({ projets, actif, setActif, entrees }) {
+  const restants = entrees.filter(e => !e.coche).length;
+  const faites = entrees.length - restants;
+  return (
+    <header style={{ padding: "22px 0 18px" }}>
+      <div className="eyebrow">Carnet de chantier</div>
+      <select className="field" value={actif} onChange={e => setActif(e.target.value)}
+        style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 26,
+          letterSpacing: "-.03em", border: 0, background: "transparent", padding: 0, width: "auto", maxWidth: "100%", margin: "6px 0 20px" }}>
+        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+      </select>
+      <div style={{ padding: 20, borderRadius: 20, color: "#fff",
+        background: "linear-gradient(160deg, #8CB35C 0%, #6F9440 55%, #4C6A2C 100%)",
+        boxShadow: "0 16px 34px -16px rgba(111,148,64,.75)" }}>
+        <span style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 15, color: "rgba(255,255,255,.9)" }}>
+          Liste de courses
+        </span>
+        <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 48,
+          letterSpacing: "-.04em", lineHeight: 1.05, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+          {restants} {restants > 1 ? "articles" : "article"}
+        </div>
+        <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0", color: "rgba(255,255,255,.85)" }}>
+          {entrees.length === 0 ? "Rien à acheter pour l'instant."
+            : restants === 0 ? "Tout est dans le chariot."
+            : `${faites} déjà dans le chariot.`}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function Courses({ entrees, majEntrees }) {
+  const [texte, setTexte] = useState("");
+  const ajouter = () => {
+    const libelle = texte.trim();
+    if (!libelle) return;
+    majEntrees([{ id: uid(), libelle, coche: false, cree: Date.now() }, ...entrees]);
+    setTexte("");
+  };
+  const basculer = (id) => majEntrees(entrees.map(e => e.id === id ? { ...e, coche: !e.coche } : e));
+  const retirer = (id) => majEntrees(entrees.filter(e => e.id !== id));
+  const viderCochees = () => majEntrees(entrees.filter(e => !e.coche));
+  const aFaire = entrees.filter(e => !e.coche);
+  const faites = entrees.filter(e => e.coche);
+
+  return (
+    <>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <input className="field" placeholder="Lait, pain, ampoules…" value={texte}
+          onChange={e => setTexte(e.target.value)} onKeyDown={e => e.key === "Enter" && ajouter()} style={{ flex: 1 }} />
+        <button className="btn" onClick={ajouter} disabled={!texte.trim()}>Ajouter</button>
+      </div>
+
+      {!entrees.length ? (
+        <div className="card" style={{ padding: 32, textAlign: "center" }}>
+          <div className="h2" style={{ marginBottom: 8, fontSize: 18 }}>La liste est vide</div>
+          <p style={{ fontSize: 15, color: C.mine, margin: 0, lineHeight: 1.6 }}>
+            Ajoute un article : il apparaît aussitôt chez Thomas aussi.
+          </p>
+        </div>
+      ) : (
+        <div className="card">
+          {aFaire.map(e => (
+            <div key={e.id} className="row" style={{ gap: 12 }}>
+              <button onClick={() => basculer(e.id)} aria-label="Cocher l'article"
+                style={{ width: 24, height: 24, borderRadius: 7, border: `2px solid ${C.vert}`, background: "transparent", flexShrink: 0, padding: 0 }} />
+              <button onClick={() => basculer(e.id)} style={{ flex: 1, textAlign: "left", background: "transparent", border: 0, padding: 0, fontSize: 16 }}>
+                {e.libelle}
+              </button>
+              <button className="btn-ghost" onClick={() => retirer(e.id)} style={{ padding: "6px 10px", fontSize: 14 }}>×</button>
+            </div>
+          ))}
+          {faites.map(e => (
+            <div key={e.id} className="row" style={{ gap: 12, opacity: .55 }}>
+              <button onClick={() => basculer(e.id)} aria-label="Décocher l'article"
+                style={{ width: 24, height: 24, borderRadius: 7, border: `2px solid ${C.vert}`, background: C.vert,
+                  color: "#fff", fontSize: 13, lineHeight: "20px", flexShrink: 0, padding: 0 }}>✓</button>
+              <button onClick={() => basculer(e.id)} style={{ flex: 1, textAlign: "left", background: "transparent", border: 0, padding: 0,
+                fontSize: 16, textDecoration: "line-through", color: C.mine }}>
+                {e.libelle}
+              </button>
+              <button className="btn-ghost" onClick={() => retirer(e.id)} style={{ padding: "6px 10px", fontSize: 14 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {faites.length > 0 && (
+        <button className="btn-ghost" onClick={viderCochees} style={{ marginTop: 14, width: "100%" }}>
+          Vider les {faites.length} article{faites.length > 1 ? "s" : ""} coché{faites.length > 1 ? "s" : ""}
+        </button>
+      )}
+    </>
+  );
+}
+
 /* ---------------------------------- Projets & réglages */
 function Projets({ projets, actif, setActif, maj, entrees, projet, majProjet, setErreur, onDeco, onChangerCarnet }) {
   const [nom, setNom] = useState("");
@@ -1151,6 +1255,7 @@ function Projets({ projets, actif, setActif, maj, entrees, projet, majProjet, se
             <option value="travaux">Chantier / travaux</option>
             <option value="budget">Budget courant</option>
             <option value="patrimoine">Patrimoine — comptes & placements</option>
+            <option value="courses">Courses</option>
             <option value="libre">Libre</option>
           </select>
           <button className="btn" onClick={creer} disabled={!nom.trim()}>Créer</button>
@@ -1163,7 +1268,7 @@ function Projets({ projets, actif, setActif, maj, entrees, projet, majProjet, se
             <span style={{ flex:1 }}>
               <span className="h2" style={{ fontSize:14 }}>{p.nom}</span>
               <span className="eyebrow" style={{ display:"block", fontSize:9, marginTop:3 }}>
-                {p.type==="travaux"?"Chantier":p.type==="budget"?"Budget courant":p.type==="patrimoine"?"Patrimoine":"Libre"}
+                {p.type==="travaux"?"Chantier":p.type==="budget"?"Budget courant":p.type==="patrimoine"?"Patrimoine":p.type==="courses"?"Courses":"Libre"}
                 {N(p.plafond)>0 && ` · plafond ${eurCourt(N(p.plafond))}`}
               </span>
             </span>
