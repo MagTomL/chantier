@@ -440,6 +440,24 @@ function App({ onDeco, onChangerCarnet }) {
         await sSet(K_PROJETS, p);
       } catch { setErreur("L'échéance du solde Schmidt n'a pas pu être inscrite."); }
     }
+    // Second acompte Megri : virement du 20/07/2026, en plus de l'ouverture de chantier du 15/07.
+    if (v && (v.maj || 0) < 11) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        const dev = list.find(e => e.ref === "MEGRI" && e.type === "devis");
+        if (dev && !list.some(e => e.ref === "MEGRI" && e.type === "depense" && e.date === "2026-07-20")) {
+          await sSet(kEntrees(v.id), [{
+            id: uid(), ref: "MEGRI", date: "2026-07-20",
+            libelle: "Appel de fonds — acompte", fournisseur: "Société Megri",
+            montant: 3000, moyen: "Virement", poste: "Maçonnerie",
+            type: "depense", statut: "signe", lie: dev.id, photo: false,
+            note: "Virement du 20/07/2026.",
+          }, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
+        }
+        v.maj = 11;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("Le second acompte Megri n'a pas pu être inscrit."); }
+    }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
 
@@ -579,6 +597,10 @@ function App({ onDeco, onChangerCarnet }) {
             const next = editeur.id ? entrees.map(x=>x.id===e.id?e:x) : [e, ...entrees];
             next.sort((a,b)=>a.date<b.date?1:-1);
             await majEntrees(next); setEditeur(null);
+          }}
+          onAjouterVersement={async (dep) => {
+            const next = [dep, ...entrees].sort((a,b)=>a.date<b.date?1:-1);
+            await majEntrees(next);
           }}
           onSupprimer={async (id) => {
             await majEntrees(entrees.filter(x=>x.id!==id));
@@ -1618,7 +1640,7 @@ function telecharger(blob, nom) {
 }
 
 /* ---------------------------------- Éditeur */
-function Editeur({ entree, postes, entrees, devis, onFermer, onEnregistrer, onSupprimer }) {
+function Editeur({ entree, postes, entrees, devis, onFermer, onEnregistrer, onAjouterVersement, onSupprimer }) {
   const vide = { id:uid(), date:today(), libelle:"", fournisseur:"", montant:"", moyen:"CB",
     poste:postes[0], type:"depense", statut:"signe", note:"", lie:"", photo:false, echeance:"" };
   const [e, setE] = useState(entree || vide);
@@ -1691,6 +1713,31 @@ function Editeur({ entree, postes, entrees, devis, onFermer, onEnregistrer, onSu
     } catch { setPb("Enregistrement impossible — le stockage du navigateur est probablement plein."); setCharge(""); }
   };
 
+  // Versements rattachés à ce devis, et ce qu'il reste à régler.
+  const [vers, setVers] = useState(null);
+  const versements = (entree && e.type === "devis")
+    ? entrees.filter(x => x.type === "depense" && x.lie === entree.id).sort((a,b)=>a.date<b.date?1:-1)
+    : [];
+  const verseTotal = versements.reduce((s,x)=>s+N(x.montant),0);
+  const soldeDevis = N(e.montant) - verseTotal;
+
+  const ajouterVersement = async () => {
+    const m = N(vers.montant);
+    if (m <= 0) { setPb("Indique le montant du versement."); return; }
+    setCharge("save"); setPb("");
+    try {
+      await onAjouterVersement({
+        id: uid(), date: vers.date || today(),
+        libelle: "Versement — " + (e.libelle || "devis"),
+        fournisseur: e.fournisseur, montant: m, moyen: vers.moyen,
+        poste: e.poste, type: "depense", statut: "signe",
+        lie: entree.id, photo: false, note: "",
+      });
+      setVers(null);
+    } catch { setPb("Le versement n'a pas pu être enregistré."); }
+    setCharge("");
+  };
+
   return (
     <div className="sheet" onClick={ev => ev.target===ev.currentTarget && onFermer()}>
       <div className="sheet-in">
@@ -1726,6 +1773,63 @@ function Editeur({ entree, postes, entrees, devis, onFermer, onEnregistrer, onSu
             onChange={ev=>{ choisirPiece(ev.target.files?.[0]); ev.target.value=""; }} />
 
           {pb && <div style={{ fontSize:12.5, color:C.brique, marginBottom:12, lineHeight:1.45 }}>{pb}</div>}
+
+          {entree && e.type==="devis" && e.statut==="signe" && (
+            <div className="card" style={{ padding:14, marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:10 }}>
+                <span className="lab" style={{ flex:1, margin:0 }}>Versements</span>
+                <span className="num" style={{ fontSize:13, color: soldeDevis<=0 ? C.vert : C.mine }}>
+                  {soldeDevis<=0 ? "Soldé" : `${eurCourt(soldeDevis)} restants`}
+                </span>
+              </div>
+
+              <div className="jauge" style={{ height:7, display:"block", marginBottom:versements.length?12:0 }}>
+                <span className="jauge-paye" style={{ background:C.vert, width:`${Math.min(100,(verseTotal/(N(e.montant)||1))*100)}%` }} />
+              </div>
+
+              {versements.map(x => (
+                <div key={x.id} style={{ display:"flex", alignItems:"baseline", gap:10, padding:"7px 0", borderTop:`1px solid ${C.trait}` }}>
+                  <span className="num" style={{ fontSize:13, color:C.mine, width:82, flexShrink:0 }}>{jour(x.date)}</span>
+                  <span style={{ flex:1, fontSize:13, color:C.mine, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{x.moyen}</span>
+                  <span className="num" style={{ fontSize:14, fontWeight:500 }}>{eur(N(x.montant))}</span>
+                </div>
+              ))}
+
+              {soldeDevis > 0 && (vers ? (
+                <div style={{ marginTop:12, display:"grid", gap:10 }}>
+                  <div style={{ display:"flex", gap:10 }}>
+                    <div style={{ flex:1 }}>
+                      <label className="lab">Montant versé</label>
+                      <input className="field mono" inputMode="decimal" autoFocus value={vers.montant}
+                        onChange={ev=>setVers(p=>({ ...p, montant:ev.target.value }))} placeholder={eurCourt(soldeDevis).replace(/[^\d]/g,"")} />
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <label className="lab">Date</label>
+                      <input className="field mono" type="date" value={vers.date}
+                        onChange={ev=>setVers(p=>({ ...p, date:ev.target.value }))} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="lab">Payé par</label>
+                    <select className="field" value={vers.moyen} onChange={ev=>setVers(p=>({ ...p, moyen:ev.target.value }))}>
+                      {MOYENS.map(m => <option key={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button className="btn-blue" onClick={ajouterVersement} disabled={!!charge} style={{ flex:1 }}>
+                      {charge==="save" ? <><span className="spin" /> Enregistrement…</> : "Ajouter le versement"}
+                    </button>
+                    <button className="btn-ghost" onClick={()=>setVers(null)} disabled={!!charge}>Annuler</button>
+                  </div>
+                  <button className="btn-ghost" style={{ fontSize:12, padding:"4px 0", alignSelf:"flex-start" }}
+                    onClick={()=>setVers(p=>({ ...p, montant:String(soldeDevis) }))}>Solder le devis ({eurCourt(soldeDevis)})</button>
+                </div>
+              ) : (
+                <button className="btn-blue" style={{ width:"100%", marginTop:12 }}
+                  onClick={()=>setVers({ montant:"", date:today(), moyen:"Virement" })}>+ Enregistrer un versement</button>
+              ))}
+            </div>
+          )}
 
           <div style={{ display:"grid", gap:12 }}>
             <div style={{ display:"flex", gap:10 }}>
