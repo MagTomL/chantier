@@ -603,6 +603,30 @@ function App({ onDeco, onChangerCarnet }) {
         await sSet(K_PROJETS, p);
       } catch { setErreur("L'assurance décennale n'a pas pu être inscrite."); }
     }
+    // Soldes honoraires : architecte et ingénieur béton entièrement payés (3 500 € chacun).
+    if (v && (v.maj || 0) < 18) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        const verseDe = (id) => list.filter(e => e.type === "depense" && e.lie === id).reduce((s, e) => s + N(e.montant), 0);
+        const ajouts = [];
+        const solder = (fourn, refm, label) => {
+          const dev = list.find(e => e.type === "devis" && e.fournisseur === fourn);
+          if (!dev) return;
+          const reste = N(dev.montant) - verseDe(dev.id);
+          if (reste > 0 && !list.some(e => e.ref === refm)) {
+            ajouts.push({ id: uid(), ref: refm, date: "2026-07-15", libelle: label,
+              fournisseur: dev.fournisseur, montant: reste, moyen: "Virement", poste: dev.poste,
+              type: "depense", statut: "signe", lie: dev.id, photo: false,
+              note: "Solde des honoraires (devis payé en totalité).\nÀ confirmer : date exacte et moyen de paiement." });
+          }
+        };
+        solder("Architecte", "ARCH-SOLDE", "Solde honoraires — Architecte");
+        solder("Bureau d'études structure", "BET-SOLDE", "Solde honoraires — Ingénieur béton");
+        if (ajouts.length) await sSet(kEntrees(v.id), [...ajouts, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
+        v.maj = 18;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("Les soldes architecte / ingénieur béton n'ont pas pu être inscrits."); }
+    }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
 
