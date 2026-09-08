@@ -485,6 +485,23 @@ function App({ onDeco, onChangerCarnet }) {
         await sSet(K_PROJETS, p);
       } catch { setErreur("Les acomptes Megri d'août/septembre n'ont pas pu être inscrits."); }
     }
+    // Jardinage : virement à Mohamed Adage, dépense indépendante (pas de devis).
+    if (v && (v.maj || 0) < 13) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        if (!list.some(e => e.ref === "JARDIN" && e.date === "2026-09-01")) {
+          await sSet(kEntrees(v.id), [{
+            id: uid(), ref: "JARDIN", date: "2026-09-01",
+            libelle: "Jardinage — Mohamed Adage", fournisseur: "Mohamed Adage",
+            montant: 3000, moyen: "Virement", poste: "Aménagement du jardin",
+            type: "depense", statut: "signe", lie: "", photo: false,
+            note: "Virement du 01/09/2026.",
+          }, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
+        }
+        v.maj = 13;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("Le virement jardinage n'a pas pu être inscrit."); }
+    }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
 
