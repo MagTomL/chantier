@@ -559,16 +559,49 @@ function App({ onDeco, onChangerCarnet }) {
         const list = await sGet(kEntrees(v.id), []);
         if (!list.some(e => e.ref === "LAURIERS")) {
           await sSet(kEntrees(v.id), [{
-            id: uid(), ref: "LAURIERS", date: "2026-09-08",
+            id: uid(), ref: "LAURIERS", date: "2026-09-05",
             libelle: "Lauriers roses — jardin", fournisseur: "",
             montant: 1393.2, moyen: "CB", poste: "Aménagement du jardin",
             type: "depense", statut: "signe", lie: "", photo: false,
-            note: "Achat de lauriers roses (1 393,20 € TTC).\nÀ confirmer : date d'achat, moyen de paiement et fournisseur.",
+            note: "Achat de lauriers roses (1 393,20 € TTC).\nÀ confirmer : moyen de paiement et fournisseur.",
           }, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
         }
         v.maj = 15;
         await sSet(K_PROJETS, p);
       } catch { setErreur("L'achat de lauriers roses n'a pas pu être inscrit."); }
+    }
+    // Correction : la vraie date des lauriers roses est le 05/09/2026.
+    if (v && (v.maj || 0) < 16) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        const suite = list.map(e => e.ref === "LAURIERS"
+          ? { ...e, date: "2026-09-05",
+              note: "Achat de lauriers roses (1 393,20 € TTC).\nÀ confirmer : moyen de paiement et fournisseur." }
+          : e);
+        await sSet(kEntrees(v.id), suite.sort((a, b) => a.date < b.date ? 1 : -1));
+        v.maj = 16;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("La date des lauriers roses n'a pas pu être corrigée."); }
+    }
+    // Assurance décennale : payée le 08/09/2026 (dépense indépendante, nouveau poste Assurances).
+    if (v && (v.maj || 0) < 17) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        if (!list.some(e => e.ref === "DECENNALE")) {
+          if (!v.prevus || !Object.prototype.hasOwnProperty.call(v.prevus, "Assurances")) {
+            v.prevus = { ...(v.prevus || {}), "Assurances": "" };
+          }
+          await sSet(kEntrees(v.id), [{
+            id: uid(), ref: "DECENNALE", date: "2026-09-08",
+            libelle: "Assurance décennale", fournisseur: "",
+            montant: 2400, moyen: "Virement", poste: "Assurances",
+            type: "depense", statut: "signe", lie: "", photo: false,
+            note: "Assurance décennale — 2 400 € TTC, payée le 08/09/2026.\nÀ confirmer : moyen de paiement et assureur.",
+          }, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
+        }
+        v.maj = 17;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("L'assurance décennale n'a pas pu être inscrite."); }
     }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
