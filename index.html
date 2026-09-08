@@ -126,6 +126,26 @@ const CSS = `
 .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid ${C.trait};
   border-top-color: ${C.cordeau}; border-radius: 50%; animation: sp .7s linear infinite; }
 @keyframes sp { to { transform: rotate(360deg) } }
+
+/* Feuille récapitulative imprimable */
+.feuille { color: ${C.ardoise}; }
+.feuille h2 { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 15px;
+  letter-spacing: -.02em; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 2px solid ${C.ardoise}; }
+.feuille section { margin-bottom: 22px; break-inside: avoid; }
+.feuille table { width: 100%; border-collapse: collapse; }
+.feuille th, .feuille td { padding: 6px 8px; font-size: 12px; text-align: left;
+  border-bottom: 1px solid ${C.trait}; vertical-align: top; }
+.feuille th { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 10px;
+  text-transform: uppercase; letter-spacing: .05em; color: ${C.mine}; }
+.feuille td.num, .feuille th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.feuille tr.tot td { border-top: 2px solid ${C.ardoise}; border-bottom: none; font-weight: 700; padding-top: 8px; }
+@media print {
+  @page { size: A4; margin: 14mm; }
+  html, body, .cdc { background: #fff !important; }
+  .no-print { display: none !important; }
+  .feuille { padding: 0 !important; max-width: none !important; }
+  .feuille th, .feuille td { border-color: #ccc; }
+}
 `;
 
 /* ---------------------------------- utils */
@@ -343,6 +363,7 @@ function App({ onDeco, onChangerCarnet }) {
   const [editeur, setEditeur] = useState(null);
   const [edTache, setEdTache] = useState(null);
   const [erreur, setErreur] = useState("");
+  const [apercu, setApercu] = useState(false);
 
   useEffect(() => { (async () => {
     let p = await sGet(K_PROJETS, null);
@@ -568,6 +589,10 @@ function App({ onDeco, onChangerCarnet }) {
   const t = chiffrer(entrees);
   const reste = plafond - t.total;
 
+  if (apercu && projet) return (
+    <FeuillePDF projet={projet} entrees={entrees} postes={postes} plafond={plafond} onFermer={() => setApercu(false)} />
+  );
+
   return (
     <div className="cdc">
       <style>{CSS}</style>
@@ -579,7 +604,7 @@ function App({ onDeco, onChangerCarnet }) {
           ? <CoursesHero projets={projets} actif={actif} setActif={setActif} entrees={entrees} />
           : estTaches
           ? <TachesHero projets={projets} actif={actif} setActif={setActif} entrees={entrees} />
-          : <Decompte projets={projets} actif={actif} setActif={setActif} plafond={plafond} t={t} reste={reste} />}
+          : <Decompte projets={projets} actif={actif} setActif={setActif} plafond={plafond} t={t} reste={reste} onPdf={()=>setApercu(true)} />}
         {erreur && (
           <div className="card" style={{ padding:12, marginBottom:12, borderColor:C.brique, background:C.briquePale, fontSize:13 }}>
             {erreur} <button className="btn-ghost" style={{ padding:"4px 10px", marginLeft:6 }} onClick={()=>setErreur("")}>Fermer</button>
@@ -603,7 +628,7 @@ function App({ onDeco, onChangerCarnet }) {
         {onglet === "taches" && <Taches entrees={entrees} onOuvrir={setEdTache} />}
         {onglet==="journal" && <Journal entrees={entrees} postes={postes} onOuvrir={setEditeur} />}
         {onglet==="budget" && <Budget projet={projet} postes={postes} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
-        {onglet==="bilan" && <Bilan projet={projet} entrees={entrees} plafond={plafond} majProjet={majProjet} />}
+        {onglet==="bilan" && <Bilan projet={projet} entrees={entrees} plafond={plafond} majProjet={majProjet} onPdf={()=>setApercu(true)} />}
         {onglet==="projets" && <Projets projets={projets} actif={actif} setActif={setActif} maj={majProjets}
           entrees={entrees} projet={projet} majProjet={majProjet} setErreur={setErreur}
           onDeco={onDeco} onChangerCarnet={onChangerCarnet} />}
@@ -678,7 +703,7 @@ function App({ onDeco, onChangerCarnet }) {
 const PAYE = "#FFFFFF";
 const ENGAGE = "#F5C645";
 
-function Decompte({ projets, actif, setActif, plafond, t, reste }) {
+function Decompte({ projets, actif, setActif, plafond, t, reste, onPdf }) {
   const over = plafond > 0 && t.total > plafond;
   const base = Math.max(plafond, t.total, 1);
   const pc = plafond > 0 ? Math.round((t.total / plafond) * 100) : 0;
@@ -724,6 +749,12 @@ function Decompte({ projets, actif, setActif, plafond, t, reste }) {
           <Bloc couleur="rgba(255,255,255,.28)" label="Disponible" val={Math.max(0, reste)} />
         </div>
       </div>
+
+      {onPdf && (
+        <button className="btn-ghost" onClick={onPdf} style={{ marginTop: 10 }}>
+          Exporter le récapitulatif en PDF
+        </button>
+      )}
     </header>
   );
 }
@@ -996,7 +1027,7 @@ function Cellule({ label, val, rouge }) {
 }
 
 /* ---------------------------------- Bilan */
-function Bilan({ projet, entrees, plafond, majProjet }) {
+function Bilan({ projet, entrees, plafond, majProjet, onPdf }) {
   const acq = projet.acquisition || [];
   const manquant = acq.filter(a => !String(a.montant).trim());
   const totalAcq = acq.reduce((s,a) => s + N(a.montant), 0);
@@ -1015,6 +1046,9 @@ function Bilan({ projet, entrees, plafond, majProjet }) {
 
   return (
     <>
+      {onPdf && <button className="btn-blue" onClick={onPdf} style={{ width:"100%", marginBottom:14, padding:13 }}>
+        Exporter le récapitulatif en PDF
+      </button>}
       <div className="card" style={{ padding:16, marginBottom:14 }}>
         <div className="eyebrow">Coût de revient de l'opération</div>
         <div style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontWeight:800, fontSize:32,
@@ -1069,6 +1103,125 @@ function Bilan({ projet, entrees, plafond, majProjet }) {
         </p>
       </div>
     </>
+  );
+}
+
+/* ---------------------------------- Feuille récapitulative / export PDF */
+function FeuillePDF({ projet, entrees, postes, plafond, onFermer }) {
+  const t = chiffrer(entrees);
+  const dispo = plafond - t.total;
+  const depenses = entrees.filter(e => e.type === "depense").sort((a, b) => a.date < b.date ? 1 : -1);
+  const devis = entrees.filter(e => e.type === "devis" && e.statut === "signe");
+  const parPoste = postes
+    .map(p => ({ nom: p, prevu: N(projet.prevus?.[p]), ...chiffrer(entrees, p) }))
+    .filter(x => x.prevu > 0 || x.total > 0);
+  const acq = (projet.acquisition || []).filter(a => N(a.montant) > 0);
+  const totalAcq = acq.reduce((s, a) => s + N(a.montant), 0);
+  const revient = totalAcq + t.total;
+  const jourLong = (d) => { try { return new Date(d + "T12:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }); } catch { return d; } };
+  const edite = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+  return (
+    <div className="cdc">
+      <style>{CSS}</style>
+      <div className="no-print" style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", alignItems: "center", gap: 8,
+        padding: "12px 14px calc(12px)", background: C.platre, borderBottom: `1px solid ${C.trait}` }}>
+        <button className="btn-ghost" onClick={onFermer}>← Retour</button>
+        <div style={{ flex: 1 }} />
+        <button className="btn-blue" onClick={() => window.print()}>Enregistrer en PDF</button>
+      </div>
+
+      <div className="wrap feuille" style={{ padding: "22px 18px 60px" }}>
+        <p className="no-print" style={{ fontSize: 12.5, color: C.mine, lineHeight: 1.5, margin: "0 0 20px" }}>
+          Appuie sur <strong>« Enregistrer en PDF »</strong>, puis choisis <strong>« PDF »</strong> comme destination (ou « Enregistrer au format PDF »).
+        </p>
+
+        <header style={{ marginBottom: 22, paddingBottom: 14, borderBottom: `3px solid ${C.cordeau}` }}>
+          <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 26, letterSpacing: "-.03em", margin: 0 }}>{projet.nom}</h1>
+          <div style={{ fontSize: 13, color: C.mine, marginTop: 4 }}>Récapitulatif financier — édité le {edite}</div>
+        </header>
+
+        <section>
+          <h2>Enveloppe travaux</h2>
+          <table>
+            <tbody>
+              <tr><td>Plafond travaux</td><td className="num">{eur(plafond)}</td></tr>
+              <tr><td>Payé</td><td className="num">{eur(t.paye)}</td></tr>
+              <tr><td>Engagé (devis signés restant à payer)</td><td className="num">{eur(t.engage)}</td></tr>
+              <tr className="tot"><td>{dispo < 0 ? "Dépassement" : "Disponible"}</td>
+                <td className="num" style={{ color: dispo < 0 ? C.brique : C.vert }}>{eur(Math.abs(dispo))}</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        {parPoste.length > 0 && (
+          <section>
+            <h2>Par poste</h2>
+            <table>
+              <thead><tr><th>Poste</th><th className="num">Prévu</th><th className="num">Payé</th><th className="num">Engagé</th><th className="num">Total</th></tr></thead>
+              <tbody>
+                {parPoste.map(x => (
+                  <tr key={x.nom}><td>{x.nom}</td><td className="num">{x.prevu ? eurCourt(x.prevu) : "—"}</td>
+                    <td className="num">{eurCourt(x.paye)}</td><td className="num">{eurCourt(x.engage)}</td>
+                    <td className="num">{eurCourt(x.total)}</td></tr>
+                ))}
+                <tr className="tot"><td>Total travaux</td>
+                  <td className="num">{eurCourt(postes.reduce((s, p) => s + N(projet.prevus?.[p]), 0))}</td>
+                  <td className="num">{eurCourt(t.paye)}</td><td className="num">{eurCourt(t.engage)}</td>
+                  <td className="num">{eurCourt(t.total)}</td></tr>
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {devis.length > 0 && (
+          <section>
+            <h2>Devis signés</h2>
+            <table>
+              <thead><tr><th>Devis</th><th>Fournisseur</th><th className="num">Montant</th><th className="num">Versé</th><th className="num">Reste</th></tr></thead>
+              <tbody>
+                {devis.map(d => { const vs = verse(entrees, d.id); const rs = N(d.montant) - vs; return (
+                  <tr key={d.id}><td>{d.libelle || "—"}</td><td>{d.fournisseur || "—"}</td>
+                    <td className="num">{eurCourt(N(d.montant))}</td><td className="num">{eurCourt(vs)}</td>
+                    <td className="num" style={{ color: rs <= 0 ? C.vert : undefined }}>{rs <= 0 ? "soldé" : eurCourt(rs)}</td></tr>
+                ); })}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {depenses.length > 0 && (
+          <section>
+            <h2>Détail des paiements</h2>
+            <table>
+              <thead><tr><th>Date</th><th>Libellé</th><th>Fournisseur</th><th>Poste</th><th>Moyen</th><th className="num">Montant</th></tr></thead>
+              <tbody>
+                {depenses.map(e => (
+                  <tr key={e.id}><td className="num">{jourLong(e.date)}</td><td>{e.libelle || "—"}</td>
+                    <td>{e.fournisseur || "—"}</td><td>{e.poste}</td><td>{e.moyen || "—"}</td>
+                    <td className="num">{eur(N(e.montant))}</td></tr>
+                ))}
+                <tr className="tot"><td colSpan={5}>Total payé</td><td className="num">{eur(t.paye)}</td></tr>
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {acq.length > 0 && (
+          <section>
+            <h2>Acquisition & coût de revient</h2>
+            <table>
+              <tbody>
+                {acq.map(a => <tr key={a.id}><td>{a.libelle || "—"}</td><td className="num">{eur(N(a.montant))}</td></tr>)}
+                <tr><td>Total acquisition</td><td className="num">{eur(totalAcq)}</td></tr>
+                <tr><td>Total travaux (payé + engagé)</td><td className="num">{eur(t.total)}</td></tr>
+                <tr className="tot"><td>Coût de revient de l'opération</td><td className="num">{eur(revient)}</td></tr>
+              </tbody>
+            </table>
+          </section>
+        )}
+      </div>
+    </div>
   );
 }
 
