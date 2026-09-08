@@ -523,6 +523,36 @@ function App({ onDeco, onChangerCarnet }) {
         await sSet(K_PROJETS, p);
       } catch { setErreur("Le virement jardinage n'a pas pu être inscrit."); }
     }
+    // Megri : deux virements de 3 000 € le 05/08. Électricien : 3 250 € le 18/08 (nouveau poste).
+    if (v && (v.maj || 0) < 14) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        const dev = list.find(e => e.ref === "MEGRI" && e.type === "devis");
+        const ajouts = [];
+        if (dev && !list.some(e => e.ref === "MEGRI" && e.type === "depense" && e.date === "2026-08-05")) {
+          ajouts.push(
+            { id: uid(), ref: "MEGRI", date: "2026-08-05", libelle: "Appel de fonds — acompte",
+              fournisseur: "Société Megri", montant: 3000, moyen: "Virement", poste: "Maçonnerie",
+              type: "depense", statut: "signe", lie: dev.id, photo: false, note: "Virement du 05/08/2026 (1 sur 2)." },
+            { id: uid(), ref: "MEGRI", date: "2026-08-05", libelle: "Appel de fonds — acompte",
+              fournisseur: "Société Megri", montant: 3000, moyen: "Virement", poste: "Maçonnerie",
+              type: "depense", statut: "signe", lie: dev.id, photo: false, note: "Virement du 05/08/2026 (2 sur 2)." },
+          );
+        }
+        if (!list.some(e => e.ref === "ELEC" && e.date === "2026-08-18")) {
+          if (!v.prevus || !Object.prototype.hasOwnProperty.call(v.prevus, "Électricité")) {
+            v.prevus = { ...(v.prevus || {}), "Électricité": "" };
+          }
+          ajouts.push({ id: uid(), ref: "ELEC", date: "2026-08-18", libelle: "Électricien — virement",
+            fournisseur: "Électricien", montant: 3250, moyen: "Virement", poste: "Électricité",
+            type: "depense", statut: "signe", lie: "", photo: false,
+            note: "Virement du 18/08/2026.\nÀ compléter : nom de l'entreprise d'électricité." });
+        }
+        if (ajouts.length) await sSet(kEntrees(v.id), [...ajouts, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
+        v.maj = 14;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("Les paiements Megri 05/08 et l'électricien n'ont pas pu être inscrits."); }
+    }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
 
