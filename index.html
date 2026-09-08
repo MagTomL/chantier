@@ -553,6 +553,23 @@ function App({ onDeco, onChangerCarnet }) {
         await sSet(K_PROJETS, p);
       } catch { setErreur("Les paiements Megri 05/08 et l'électricien n'ont pas pu être inscrits."); }
     }
+    // Jardin : achat de lauriers roses (dépense indépendante). Date provisoire à confirmer.
+    if (v && (v.maj || 0) < 15) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        if (!list.some(e => e.ref === "LAURIERS")) {
+          await sSet(kEntrees(v.id), [{
+            id: uid(), ref: "LAURIERS", date: "2026-09-08",
+            libelle: "Lauriers roses — jardin", fournisseur: "",
+            montant: 1393.2, moyen: "CB", poste: "Aménagement du jardin",
+            type: "depense", statut: "signe", lie: "", photo: false,
+            note: "Achat de lauriers roses (1 393,20 € TTC).\nÀ confirmer : date d'achat, moyen de paiement et fournisseur.",
+          }, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
+        }
+        v.maj = 15;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("L'achat de lauriers roses n'a pas pu être inscrit."); }
+    }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
 
