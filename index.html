@@ -458,6 +458,33 @@ function App({ onDeco, onChangerCarnet }) {
         await sSet(K_PROJETS, p);
       } catch { setErreur("Le second acompte Megri n'a pas pu être inscrit."); }
     }
+    // Suite des acomptes Megri : virement 25/08, puis 03/09 réglé en deux fois
+    // (virement 1 139,35 € + chèque 1 860,65 € à CRMT), le tout imputé au marché Megri.
+    if (v && (v.maj || 0) < 12) {
+      try {
+        const list = await sGet(kEntrees(v.id), []);
+        const dev = list.find(e => e.ref === "MEGRI" && e.type === "devis");
+        if (dev) {
+          const cand = [
+            { date: "2026-08-25", montant: 3000, moyen: "Virement", fournisseur: "Société Megri",
+              libelle: "Appel de fonds — acompte", note: "Virement du 25/08/2026." },
+            { date: "2026-09-03", montant: 1139.35, moyen: "Virement", fournisseur: "Société Megri",
+              libelle: "Appel de fonds — acompte", note: "Virement du 03/09/2026." },
+            { date: "2026-09-03", montant: 1860.65, moyen: "Chèque", fournisseur: "Société CRMT",
+              libelle: "Appel de fonds — solde par chèque",
+              note: "Chèque à la société CRMT (à confirmer : CRMT ou SRMT), imputé au marché Megri.\nComplément du versement du 03/09 : 3 000 € − 1 139,35 € = 1 860,65 €." },
+          ];
+          const ajouts = cand
+            .filter(c => !list.some(e => e.ref === "MEGRI" && e.type === "depense"
+              && e.date === c.date && e.moyen === c.moyen && N(e.montant) === c.montant))
+            .map(c => ({ id: uid(), ref: "MEGRI", poste: "Maçonnerie", type: "depense",
+              statut: "signe", lie: dev.id, photo: false, ...c }));
+          if (ajouts.length) await sSet(kEntrees(v.id), [...ajouts, ...list].sort((a, b) => a.date < b.date ? 1 : -1));
+        }
+        v.maj = 12;
+        await sSet(K_PROJETS, p);
+      } catch { setErreur("Les acomptes Megri d'août/septembre n'ont pas pu être inscrits."); }
+    }
     setProjets(p); setActif(p[0].id);
   })(); }, []);
 
